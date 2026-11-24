@@ -2,52 +2,67 @@
 
 > Aliens built the pyramids. Now they're fighting over who builds the tallest one.
 
-A silly, cartoony mobile PvP game. Two aliens race to build the taller pyramid while abducting and blasting blocks off each other's.
+A silly, cartoony mobile PvP game. You're an alien commander. Send your troops to grab stone from the middle, fight the enemy's troops, and build the taller pyramid. Every so often, cast a sneaky special ability yourself.
 
 ## Pillars
 - **Short battles:** every match is 2–3 minutes.
-- **Hands-on:** you place every block yourself, and blocks are hard to get.
+- **Command, don't micromanage:** troops do the work, and you decide who to send. Special abilities are your hands-on moments.
 - **Pyramids can't tip over:** you remove blocks from the top and the outer edges only.
+- **Horizontal (landscape) screen:** your pyramid on the left, theirs on the right, the quarry in the middle.
 - **Silly and lo-fi:** cartoony, low-detail graphics, goofy aliens, conspiracy jokes.
 
 ## Game structure
 | Mode | What it is | Feeds into |
 |------|------------|------------|
 | **Battle** | 1v1 real-time PvP, 2–3 min | Earns resources |
-| **Home base** | Your own safe zone with one or more pyramids; a pyramid economy and tech tree | Unlocks stronger tech for battle |
+| **Home base** | Your own safe zone with one or more pyramids; a pyramid economy and tech tree | Unlocks troops and abilities for battle |
 
-The home base and battle pyramids are **completely separate**. Home only makes you stronger through tech. Nobody can raid your home base.
+The home base and battle pyramids are **completely separate**. Home only makes you stronger through unlocks. Nobody can raid your home base.
 
 ---
 
 ## ⚔️ Battle
 
-### Flow
-1. Both players start with an empty foundation.
-2. Collect blocks. They are **scarce and hard to get** (see below).
-3. **Place blocks yourself** on your pyramid. A block needs support underneath, like a real pyramid.
-4. Use alien tech to **abduct or blast** exposed blocks off the opponent's pyramid.
-5. When time runs out, the **tallest pyramid wins** (tie-breaker: most blocks).
+### Layout (landscape)
+```
+[ YOUR PYRAMID ] ---- ground lane ---- [ QUARRY ] ---- ground lane ---- [ ENEMY PYRAMID ]
+       🛸                  sky: UFOs fly over everything                        🛸
+```
 
-### Exposed blocks
-A block can only be targeted if it's on the **top layer** or on an **outer edge**. Inner blocks are protected until the outside is stripped away, so the outer layer works as armor.
+### Currencies
+| Currency | How you get it | Spent on |
+|----------|----------------|----------|
+| 🧱 **Stone** | Troops carry it back from the quarry, or steal it | Building your pyramid (and maybe deploying troops; see open questions) |
+| 🔮 **Mana** | Fills up slowly over time | Deploying troops and casting special abilities |
 
-### Getting blocks (needs to feel hard)
-Ideas to test:
-- Blocks appear at random spots in a shared middle zone. You have to grab them before your opponent does.
-- A beam takes time to pull a block in, and the opponent can interrupt it.
-- Rare "golden" blocks are worth more height or defense.
-- Abducting a block from the opponent's pyramid gives you that block.
+### Troops
+| Troop | Speed | Carries | Fights? | Role |
+|-------|-------|---------|---------|------|
+| 👽 **Martian** (regular green guy) | Medium | 1 stone | Yes, at the quarry | The all-rounder. Walks to the quarry, grabs stone, fights enemies there, walks back. |
+| 🥷 **Sneaky** | Fast | 1 stone | No | Slips past enemy aliens without being attacked. Weak if caught by a UFO or ability. |
+| 🦍 **Big Guy** | Very slow | Lots (around 5) | No | Brings back a pile of stone, but enemies can beat him up and **take his stone**. Needs escorts. |
+| 🚀 **Battleship** (flying) | Medium | Nothing | Yes, only fights | Flies over the field and shoots enemy troops. Doesn't gather. |
+| 🛸 **Saucer** (special UFO pilot) | Fast, flying | 1–2 stone | No | Flies around collecting stone. It's the ship that casts **special abilities**. |
 
-### Battle tech (unlocked at home)
-- 🛸 **Abduction Beam:** steal an exposed block and add it to your stash.
-- 💥 **Plasma Blast:** destroy a few exposed blocks. You don't get them.
-- 🧲 **Magnet Pulse:** pull a whole row off one side.
-- 🛡️ **Shield Dome:** protect your top layer for a few seconds.
-- 🧱 **Reinforced Blocks:** take two hits to remove.
-- 🏆 **Golden Capstone:** a big bonus if you finish a complete peak.
+### Rock-paper-scissors
+- Martians beat Sneakies and Big Guys in a fight.
+- Sneakies get past Martians.
+- Battleships wreck Martians and can catch Sneakies.
+- Big Guys are a juicy target, so protect them or lose a big haul.
 
-Battle tech runs on **energy**, which builds up during the match.
+### Special abilities (cast with mana, from your Saucer)
+- 🛸 **Abduct:** beam up an enemy troop (and the stone it's carrying), or an exposed block from their pyramid.
+- 💥 **Explode:** blow up a group of enemy troops, or exposed blocks on their pyramid.
+- More later: shield, meteor, cow drop, wormhole.
+
+### Pyramid rules
+- Blocks can only be removed if they're **exposed**, meaning nothing is resting on them (the top and outer surface).
+- **Win:** the tallest pyramid when time runs out (tie-breaker: most blocks).
+
+### Spicy extras (to try later)
+- **Overtime:** last 30 seconds, mana fills twice as fast.
+- **Random events:** sandstorm, golden stone rain, a lost tourist.
+- **Capstone race:** finishing a full peak gives a big bonus.
 
 ---
 
@@ -57,21 +72,9 @@ Battle tech runs on **energy**, which builds up during the match.
   - **Power Pyramid:** makes energy.
   - **Lab Pyramid:** researches tech.
   - **Hangar Pyramid:** builds UFOs and upgrades.
-- **Tech tree:** spend resources to unlock and upgrade battle tech, faster beams, stronger blocks and new factions.
+- **Tech tree:** unlock and upgrade troops and special abilities.
+- **Loadout:** choose which troops and abilities to bring into each battle.
 - **Cosmetics:** pyramid skins, alien outfits, base decorations.
-
-### Resources
-- **Stone:** basic building material at home.
-- **Energy:** powers tech.
-- **Crystals:** rare, won mainly in battles, used for unlocks.
-
----
-
-## Alien factions (later)
-- **Greys:** balanced, strong abduction beam.
-- **Reptilians:** slow, sturdy blocks.
-- **Blobs:** bouncy blocks that resist blasts.
-- **Robots:** fast builders, fragile blocks.
 
 ## Theme and style
 - Cartoony and lo-fi: simple shapes, bright colors, wobbly aliens.
@@ -79,14 +82,15 @@ Battle tech runs on **energy**, which builds up during the match.
 - Conspiracy jokes: tinfoil hats, "the truth is out there" loading screens.
 
 ## Open questions
-- What platform and engine (phone browser? Godot? Unity?)
-- How does matchmaking work? (Start with local or bot battles.)
-- How exactly are blocks collected in battle? (Prototype and test.)
-- How does the opponent's pyramid show on a phone screen (split screen? side by side?)
+- **What do troops cost: mana, stone, or both?** (Stone costs would make you choose between building and a bigger army.)
+- **Is building automatic** when stone gets home, or do you choose where blocks go?
+- **How do you deploy troops?** Tap a card to spawn at your pyramid?
+- **Saucer:** do you get one at the start, or deploy them like other troops?
+- Matchmaking (start with bot battles).
 
 ## Build plan
-1. **Prototype:** a single-screen battle against a dumb bot, with placing blocks and abducting.
-2. Add energy and 2–3 tech moves.
+1. ~~Prototype v1: portrait, hands-on block placing vs bot~~ (done, felt boring)
+2. **Prototype v2:** landscape, troops (Martian, Sneaky, Big Guy, Battleship, Saucer), stone + mana, Abduct + Explode, vs bot.
 3. Real 1v1 multiplayer.
 4. Home base and tech tree.
-5. Polish, factions and cosmetics.
+5. Polish, more abilities, cosmetics.
