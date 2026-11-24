@@ -141,7 +141,7 @@ function drawHelp() {
     '🥷 Sneaky: only fights other Sneakies    🦍 Big Guy: carries 5 stone',
     '🚀 Battleship: bombs troops    🔨 Builder: builds faster',
     '🛸 Saucer: casts 🌀 Abduct and 💥 Explode',
-    '💣 Mega Ship: pricey, bombs their front line. Only another Mega Ship can stop it',
+    '💣 Mega Ship: drops 3 big bombs on their front line. Only another Mega Ship can stop it',
     'Tallest pyramid after 2:30 wins, or finish yours first!',
   ];
   lines.forEach((l, k) => text(l, W / 2, 112 + k * 28, 14, k === 6 ? '#7dff7a' : '#fff', 'center', false));

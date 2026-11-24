@@ -26,7 +26,7 @@ const TYPES = {
   builder:    { name: 'Builder',    icon: '🔨', cost: 3, hp: 10, speed: 35, ground: true, builder: true },
   saucer:     { name: 'Saucer',     icon: '🛸', cost: 5, hp: 18, speed: 75, carry: 2, mine: 0.6, air: true, gather: true, saucer: true, retreat: 0.4 },
 };
-const MEGA_BOMB_DMG = 30, MEGA_BOMB_RADIUS = 55;
+const MEGA_BOMB_DMG = 30, MEGA_BOMB_RADIUS = 68, MEGA_BOMBS = 3;   // a Mega Ship drops 3 bombs, then leaves
 const ABIL = {
   abduct:  { name: 'Abduct',  icon: '🌀', cost: 4 },
   explode: { name: 'Explode', icon: '💥', cost: 6 },
@@ -227,7 +227,7 @@ function updateBattleship(u, dt) {
   if (!tgt) { moveTo(u, QX - s.dir * 70, 100, dt); return; }
   moveTo(u, tgt.x - s.dir * 50, tgt.T.air ? tgt.y : 215, dt);
 }
-// Mega Ship: fly to the middle, drop a big bomb on the enemy front line, fly home, repeat.
+// Mega Ship: fly to the middle, drop a big bomb on the enemy front line, fly home. After 3 bombs it flies away.
 function updateMega(u, dt) {
   const s = u.side;
   const rival = s.enemy.units.find(v => v.T.mega && v.hp > 0);
@@ -237,10 +237,13 @@ function updateMega(u, dt) {
     say(QX, 140, 'MEGA CRASH!', '#ffb347', 20);
     kill(u); kill(rival); return;
   }
-  if (u.state !== 'back') {
+  if (u.state === 'leave') {   // out of bombs: fly off the top of the screen and vanish
+    if (moveTo(u, s.cx, -80, dt)) u.hp = 0;
+  } else if (u.state !== 'back') {
     if (moveTo(u, QX - s.dir * 20, 170, dt)) {
       S.bigBombs.push({ x: u.x, y: u.y + 12, vx: s.dir * 50, vy: 0, side: s });
-      u.state = 'back'; u.fireT = 0.25;
+      u.drops = (u.drops || 0) + 1; u.fireT = 0.25;
+      u.state = u.drops >= MEGA_BOMBS ? 'leave' : 'back';
     }
   } else if (moveTo(u, s.cx + s.dir * 30, 110, dt)) u.state = 'out';
 }
@@ -249,8 +252,8 @@ function updateBigBombs(dt) {
     b.vy += 300 * dt; b.x += b.vx * dt; b.y += b.vy * dt;
     if (b.y < GROUND - 2) continue;
     b.done = true;
-    S.booms.push({ x: b.x, y: GROUND - 6, t: 0 });
-    puff(b.x, GROUND - 6, '#ff7b3a', 26, 170); puff(b.x, GROUND - 6, '#ffe066', 14, 120);
+    S.booms.push({ x: b.x, y: GROUND - 6, t: 0, mega: true });
+    puff(b.x, GROUND - 6, '#ff7b3a', 34, 200); puff(b.x, GROUND - 6, '#ffe066', 18, 140);
     for (const v of b.side.enemy.units) {
       if (v.T.ground && !v.T.sneaky && Math.abs(v.x - b.x) < MEGA_BOMB_RADIUS) { v.hp -= MEGA_BOMB_DMG; v.flash = 0.2; if (v.hp <= 0) kill(v); }
     }
@@ -623,12 +626,12 @@ function drawHud() {
 function drawFx() {
   for (const b of S.booms) {
     ctx.globalAlpha = 1 - b.t / 0.4; ctx.fillStyle = b.small ? '#ff9a3a' : '#ffdd55';
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.small ? 5 + b.t * 45 : 20 + b.t * 120, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.small ? 5 + b.t * 45 : b.mega ? 26 + b.t * 150 : 20 + b.t * 120, 0, Math.PI * 2); ctx.fill();
   }
   ctx.globalAlpha = 1;
   for (const b of S.bigBombs) {
-    ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = Math.sin(now() * 40) > 0 ? '#ffe066' : '#ff5a2a'; ctx.beginPath(); ctx.arc(b.x, b.y - 7, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.arc(b.x, b.y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = Math.sin(now() * 40) > 0 ? '#ffe066' : '#ff5a2a'; ctx.beginPath(); ctx.arc(b.x, b.y - 10, 2.8, 0, Math.PI * 2); ctx.fill();
   }
   for (const sh of S.shots) {
     if (sh.bomb) {
