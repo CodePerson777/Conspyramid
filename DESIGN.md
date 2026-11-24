@@ -43,7 +43,13 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 | 🦍 **Big Guy** | Very slow | Lots (around 5) | No | Brings back a pile of stone, but enemies can beat him up and **take his stone**. Needs escorts. |
 | 🚀 **Battleship** (flying) | Medium | Nothing | Yes, only fights | Flies over the field and shoots enemy troops. Doesn't gather. |
 | 🛸 **Saucer** (special UFO pilot) | Fast, flying | 1–2 stone | No | Flies around collecting stone. It's the ship that casts **special abilities**. You start with one. |
+| 💣 **Mega Ship** (once per match, 10 mana) | Fast, flying | Nothing | Bombs only | Flies to the middle, drops a big bomb on the enemy front line, flies home, repeats. Only Battleships and Big Guys can hurt it. Two Mega Ships crash and destroy each other. |
 | 🔨 **Builder** | Slow | Nothing | No | Stays at your pyramid and makes it build faster. |
+
+### Combat rules
+- Troops are fragile and shoot laser guns. Hurt troops retreat home **once** to drop off stone, then go back out **without healing**.
+- **Sneakies** only fight other Sneakies, and nobody else can touch them.
+- When the quarry is empty, waiting troops fight at the middle line. Nobody crosses into the enemy half (except Saucers casting abilities).
 
 ### Rock-paper-scissors
 - Martians beat Sneakies and Big Guys in a fight.

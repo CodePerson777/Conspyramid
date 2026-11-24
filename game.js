@@ -15,22 +15,23 @@ const QUARRY_MAX = 10, QUARRY_START = 4, QUARRY_REGEN = 2.0;   // +1 quarry ston
 const UNIT_CAP = 8;                 // per side
 const BUILD_TIME = 4.0;             // seconds per block with no builders
 const BUILDER_BONUS = 0.5;          // each builder adds +50% build speed (max 4 count)
-const HEAL_RATE = 0.25;             // hurt troops heal 25% of max HP per second at home
 const FONT = '"Comic Sans MS", "Chalkboard SE", "Comic Neue", sans-serif';
 
 const TYPES = {
-  martian:    { name: 'Martian',    icon: '👽', cost: 3, hp: 30, speed: 45, carry: 1, mine: 0.9, dmg: 6, rate: 0.9, range: 60, ground: true, gather: true, fights: true, retreat: 0.5 },
-  sneaky:     { name: 'Sneaky',     icon: '🥷', cost: 2, hp: 12, speed: 80, carry: 1, mine: 0.7, dmg: 3, rate: 1.0, range: 45, ground: true, gather: true, sneaky: true, retreat: 0.5 },
-  bigguy:     { name: 'Big Guy',    icon: '🦍', cost: 4, hp: 70, speed: 20, carry: 5, mine: 0.6, dmg: 10, rate: 1.6, range: 45, ground: true, gather: true, retreat: 0.3 },
-  battleship: { name: 'Battleship', icon: '🚀', cost: 5, hp: 45, speed: 55, dmg: 9, rate: 0.8, range: 100, air: true, fights: true, bomb: true, retreat: 0.4 },
-  builder:    { name: 'Builder',    icon: '🔨', cost: 3, hp: 20, speed: 35, ground: true, builder: true },
-  saucer:     { name: 'Saucer',     icon: '🛸', cost: 5, hp: 30, speed: 75, carry: 2, mine: 0.6, air: true, gather: true, saucer: true, retreat: 0.4 },
+  martian:    { name: 'Martian',    icon: '👽', cost: 3, hp: 15, speed: 45, carry: 1, mine: 0.9, dmg: 8, rate: 0.9, range: 60, ground: true, gather: true, fights: true, retreat: 0.5 },
+  sneaky:     { name: 'Sneaky',     icon: '🥷', cost: 2, hp: 8, speed: 80, carry: 1, mine: 0.7, dmg: 5, rate: 1.0, range: 45, ground: true, gather: true, sneaky: true, retreat: 0.5 },
+  bigguy:     { name: 'Big Guy',    icon: '🦍', cost: 4, hp: 35, speed: 20, carry: 5, mine: 0.6, dmg: 14, rate: 1.6, range: 45, airRange: 220, ground: true, gather: true, retreat: 0.3 },
+  battleship: { name: 'Battleship', icon: '🚀', cost: 5, hp: 25, speed: 55, dmg: 12, rate: 0.8, range: 100, air: true, fights: true, bomb: true, retreat: 0.4 },
+  mega:       { name: 'Mega Ship',  icon: '💣', cost: 10, hp: 60, speed: 110, air: true, mega: true, once: true },
+  builder:    { name: 'Builder',    icon: '🔨', cost: 3, hp: 10, speed: 35, ground: true, builder: true },
+  saucer:     { name: 'Saucer',     icon: '🛸', cost: 5, hp: 18, speed: 75, carry: 2, mine: 0.6, air: true, gather: true, saucer: true, retreat: 0.4 },
 };
+const MEGA_BOMB_DMG = 30, MEGA_BOMB_RADIUS = 55;
 const ABIL = {
   abduct:  { name: 'Abduct',  icon: '🌀', cost: 4 },
   explode: { name: 'Explode', icon: '💥', cost: 6 },
 };
-const CARDS = ['martian', 'sneaky', 'bigguy', 'battleship', 'builder', 'saucer', 'abduct', 'explode'];
+const CARDS = ['martian', 'sneaky', 'bigguy', 'battleship', 'mega', 'builder', 'saucer', 'abduct', 'explode'];
 
 // ---------- Canvas ----------
 const canvas = document.getElementById('c');
@@ -79,7 +80,7 @@ function makeSide(isYou) {
 }
 function newGame() {
   S = { t: 0, time: MATCH_TIME, quarry: QUARRY_START, qTimer: 0, loose: [], parts: [], texts: [], zaps: [],
-        booms: [], shots: [], botT: 2, you: makeSide(true), bot: makeSide(false) };
+        booms: [], shots: [], bigBombs: [], botT: 2, you: makeSide(true), bot: makeSide(false) };
   S.you.enemy = S.bot; S.bot.enemy = S.you;
   for (const s of [S.you, S.bot]) { spawn(s, 'saucer'); spawn(s, 'martian'); }
   mode = 'play';
@@ -106,9 +107,11 @@ function spawn(s, type) {
 }
 function deploy(s, type) {
   const T = TYPES[type];
-  if (s.units.length >= UNIT_CAP) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Too many troops!', '#f88'); return false; }
+  if (T.once && s.megaBought) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Only one per match!', '#f88'); return false; }
+  if (!T.once && s.units.length >= UNIT_CAP) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Too many troops!', '#f88'); return false; }
   if (s.mana < T.cost) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Need ' + T.cost + ' mana', '#f88'); return false; }
   s.mana -= T.cost; spawn(s, type);
+  if (T.once) s.megaBought = true;
   return true;
 }
 function moveTo(u, tx, ty, dt, spd) {
@@ -136,17 +139,22 @@ function kill(u, dropStone = true) {
 // ---------- Shooting ----------
 function canSee(u, e) {
   if (e.hp <= 0) return false;
-  if (u.T.air) return true;                                   // battleships see everything
-  return e.T.ground && (!e.T.sneaky || e.revealT > 0);        // Sneakies are hidden unless they shoot
+  if (u.T.sneaky || e.T.sneaky) return !!(u.T.sneaky && e.T.sneaky);  // Sneakies only fight Sneakies
+  if (e.T.mega) return u.type === 'battleship' || u.type === 'bigguy'; // only these can hurt a Mega Ship
+  if (u.T.air) return true;                                            // battleships hit anything else
+  return !!e.T.ground;
+}
+function inRange(u, e) {
+  const d = Math.hypot(e.x - u.x, e.y - u.y);
+  return d <= (e.T.mega && u.T.airRange ? u.T.airRange : u.T.range);
 }
 function tryShoot(u, dt) {
   const T = u.T; if (!T.dmg) return false;
-  const foe = nearestEnemy(u, T.range, e => canSee(u, e));
+  const foe = nearestEnemy(u, 9999, e => canSee(u, e) && inRange(u, e));
   if (!foe) return false;
   u.aiming = true; u.face = Math.sign(foe.x - u.x) || u.face;
   if (u.cd <= 0) {
     u.cd = T.rate * rand(0.85, 1.15); u.fireT = 0.12;
-    if (T.sneaky) u.revealT = 1.5;
     const sc = u.type === 'bigguy' ? 1.7 : u.type === 'sneaky' ? 0.8 : 1;
     const gx = u.x + u.face * (T.air ? 18 : 12 * sc), gy = T.air ? u.y + 3 : u.y - 10 * sc;
     S.shots.push({ x: gx, y: gy, target: foe, tx: foe.x, ty: foe.y, dmg: T.dmg, bomb: !!T.bomb,
@@ -200,24 +208,19 @@ function updateGatherer(u, dt) {
     }
   }
 }
-// Hurt troops run home (dropping off any stone), heal up, then head back out.
+// Hurt troops run home once (dropping off any stone), then head back out. No healing.
 function updateRetreat(u, dt) {
   const T = u.T, s = u.side;
   if (!T.retreat) return false;
-  if (u.state !== 'retreat' && u.state !== 'healing' && !u.task && u.hp <= T.hp * T.retreat) {
+  if (u.state !== 'retreat' && !u.retreated && !u.task && u.hp <= T.hp * T.retreat) {
     u.state = 'retreat';
     if (s.isYou) say(u.x, u.y - 30, 'Ouch! Retreat!', '#ffb0b0', 11);
   }
   if (u.state === 'retreat') {
     if (moveTo(u, T.air ? s.cx : s.home, T.air ? 150 : u.y, dt, T.speed * 1.4)) {
       if (u.carry) { s.stock += u.carry; if (s.isYou) say(s.home, u.y - 30, '+' + u.carry + ' stone', '#ffd27a'); }
-      u.carry = 0; u.state = 'healing';
+      u.carry = 0; u.retreated = true; u.state = 'toQuarry'; u.qx = QX - s.dir * rand(0, 28);
     }
-    return true;
-  }
-  if (u.state === 'healing') {
-    u.hp = Math.min(T.hp, u.hp + T.hp * HEAL_RATE * dt);
-    if (u.hp >= T.hp) { u.state = 'toQuarry'; u.qx = QX - s.dir * rand(0, 28); }
     return true;
   }
   return false;
@@ -228,6 +231,36 @@ function updateBattleship(u, dt) {
   const tgt = nearestEnemy(u, 9999, e => canSee(u, e));
   if (!tgt) { moveTo(u, QX - s.dir * 70, 100, dt); return; }
   moveTo(u, tgt.x - s.dir * 50, tgt.T.air ? tgt.y : 215, dt);
+}
+// Mega Ship: fly to the middle, drop a big bomb on the enemy front line, fly home, repeat.
+function updateMega(u, dt) {
+  const s = u.side;
+  const rival = s.enemy.units.find(v => v.T.mega && v.hp > 0);
+  if (rival && Math.hypot(rival.x - u.x, rival.y - u.y) < 70) {   // two Mega Ships destroy each other
+    S.booms.push({ x: (u.x + rival.x) / 2, y: (u.y + rival.y) / 2, t: 0 });
+    puff(u.x, u.y, '#ff7b3a', 20, 150); puff(rival.x, rival.y, '#ff7b3a', 20, 150);
+    say(QX, 140, 'MEGA CRASH!', '#ffb347', 20);
+    kill(u); kill(rival); return;
+  }
+  if (u.state !== 'back') {
+    if (moveTo(u, QX - s.dir * 20, 170, dt)) {
+      S.bigBombs.push({ x: u.x, y: u.y + 12, vx: s.dir * 50, vy: 0, side: s });
+      u.state = 'back'; u.fireT = 0.25;
+    }
+  } else if (moveTo(u, s.cx + s.dir * 30, 110, dt)) u.state = 'out';
+}
+function updateBigBombs(dt) {
+  for (const b of S.bigBombs) {
+    b.vy += 300 * dt; b.x += b.vx * dt; b.y += b.vy * dt;
+    if (b.y < GROUND - 2) continue;
+    b.done = true;
+    S.booms.push({ x: b.x, y: GROUND - 6, t: 0 });
+    puff(b.x, GROUND - 6, '#ff7b3a', 26, 170); puff(b.x, GROUND - 6, '#ffe066', 14, 120);
+    for (const v of b.side.enemy.units) {
+      if (v.T.ground && !v.T.sneaky && Math.abs(v.x - b.x) < MEGA_BOMB_RADIUS) { v.hp -= MEGA_BOMB_DMG; v.flash = 0.2; if (v.hp <= 0) kill(v); }
+    }
+  }
+  S.bigBombs = S.bigBombs.filter(b => !b.done);
 }
 function updateSaucer(u, dt) {
   const t = u.task;
@@ -282,7 +315,7 @@ function cast(s, kind, x, y) {   // returns true if cast
   let task = null;
   if (kind === 'explode') task = { kind: 'explode', x, y };
   else {
-    const unit = e.units.filter(v => v.hp > 0 && Math.hypot(v.x - x, (v.y - 10) - y) < 22)
+    const unit = e.units.filter(v => v.hp > 0 && !v.T.mega && Math.hypot(v.x - x, (v.y - 10) - y) < 22)
       .sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
     if (unit) task = { kind: 'abductUnit', target: unit };
     else {
@@ -303,15 +336,21 @@ function botThink() {
   const count = (s, t) => s.units.filter(u => u.type === t).length;
   const hasSaucer = count(b, 'saucer') > 0;
   // Abilities
-  if (hasSaucer && b.mana >= ABIL.explode.cost && Math.random() < 0.5) {
+  if (!b.savingForMega && hasSaucer && b.mana >= ABIL.explode.cost && Math.random() < 0.5) {
     const c = y.units.find(u => y.units.filter(v => Math.hypot(v.x - u.x, v.y - u.y) < 55).length >= 3);
     if (c) { cast(b, 'explode', c.x, c.y - 10); return; }
   }
-  if (hasSaucer && b.mana >= ABIL.abduct.cost && Math.random() < 0.35) {
+  if (!b.savingForMega && hasSaucer && b.mana >= ABIL.abduct.cost && Math.random() < 0.35) {
     const big = y.units.find(u => u.carry >= 3);
     if (big) { cast(b, 'abduct', big.x, big.y - 10); return; }
     const top = listSlots(y, isExposed).sort((a, c) => c[0] - a[0])[0];
     if (top && top[0] >= 2) { const c = slotCenter(y, ...top); cast(b, 'abduct', c.x, c.y); return; }
+  }
+  // Mega Ship: counter the player's, or sometimes buy one mid-match
+  if (!b.megaBought && (y.units.some(u => u.T.mega) || (S.t > 40 && Math.random() < 0.05))) b.savingForMega = true;
+  if (b.savingForMega) {
+    if (b.mana >= TYPES.mega.cost) { deploy(b, 'mega'); b.savingForMega = false; }
+    return;   // save mana until it can afford one
   }
   // Deploy
   let want;
@@ -347,6 +386,7 @@ function update(dt) {
         else if (u.T.gather) updateGatherer(u, dt);
         else if (u.T.builder) updateBuilder(u, dt);
         else if (u.type === 'battleship') updateBattleship(u, dt);
+        else if (u.T.mega) updateMega(u, dt);
       }
       // Everyone stays on their own half (Saucers can cross to cast abilities).
       if (!u.T.saucer) u.x = s.dir > 0 ? Math.min(u.x, QX - 4) : Math.max(u.x, QX + 4);
@@ -368,6 +408,7 @@ function update(dt) {
 
   S.botT -= dt;
   updateShots(dt);
+  updateBigBombs(dt);
   if (S.botT <= 0) { botThink(); S.botT = rand(0.9, 1.5); }
   updateFx(dt);
 }
@@ -388,7 +429,7 @@ function endMatch(capper) {
 }
 
 // ---------- Input ----------
-const CARD_W = 88, CARD_GAP = 8, CARD_Y = 340, CARD_H = 56;
+const CARD_W = 80, CARD_GAP = 6, CARD_Y = 340, CARD_H = 56;
 const CARD_X0 = (W - CARDS.length * CARD_W - (CARDS.length - 1) * CARD_GAP) / 2;
 function cardRect(k) { return { x: CARD_X0 + k * (CARD_W + CARD_GAP), y: CARD_Y, w: CARD_W, h: CARD_H }; }
 function inRect(x, y, r) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
@@ -477,13 +518,15 @@ function drawUnit(u) {
   ctx.save();
   if (T.air) {
     const y = u.y + Math.sin(now() * 3 + u.id) * 3;
-    if (u.type === 'battleship') {
-      ctx.translate(x + (u.flash > 0 ? rand(-2, 2) : 0), y); ctx.scale(u.face, 1);
-      ctx.fillStyle = u.flash > 0 ? '#fff' : '#7a8496'; rr(-18, -5, 36, 10, 5); ctx.fill();
+    if (u.type === 'battleship' || T.mega) {
+      const m = T.mega ? 2.2 : 1;
+      ctx.translate(x + (u.flash > 0 ? rand(-2, 2) : 0), y); ctx.scale(u.face * m, m);
+      ctx.fillStyle = u.flash > 0 ? '#fff' : T.mega ? '#4b4f5c' : '#7a8496'; rr(-18, -5, 36, 10, 5); ctx.fill();
       ctx.fillStyle = '#4b5263'; ctx.beginPath(); ctx.moveTo(-18, -5); ctx.lineTo(-26, -10); ctx.lineTo(-22, 0); ctx.closePath(); ctx.fill();
       ctx.fillStyle = body; ctx.beginPath(); ctx.ellipse(4, -6, 7, 5, 0, Math.PI, 0); ctx.fill();
       ctx.fillStyle = '#ffb347'; ctx.fillRect(-24, -2, 5 + Math.random() * 3, 4);
       ctx.fillStyle = '#3a3f4b'; ctx.fillRect(12, 3, 7, 3);   // cannon
+      if (T.mega) { ctx.fillStyle = you ? '#6be86b' : '#c07bff'; ctx.fillRect(-14, -1, 26, 2); }   // team stripe
       if (u.fireT > 0) { ctx.fillStyle = '#ffe066'; ctx.beginPath(); ctx.arc(20, 4.5, 4, 0, Math.PI * 2); ctx.fill(); }
       ctx.restore();
     } else { // saucer
@@ -507,7 +550,7 @@ function drawUnit(u) {
     const walking = u.state !== 'mining' && u.state !== 'healing' && !u.aiming && !(T.builder && Math.abs(u.x - u.station) < 1);
     const y = u.y + (walking ? -Math.abs(bob(u, 3)) : 0);
     const big = u.type === 'bigguy' ? 1.7 : u.type === 'sneaky' ? 0.8 : 1;
-    if (u.type === 'sneaky' && !(u.revealT > 0)) ctx.globalAlpha = 0.6;   // see-through while hidden
+    if (u.type === 'sneaky') ctx.globalAlpha = 0.6;   // ghostly: only other Sneakies can touch them
     ctx.translate(x + (u.flash > 0 ? rand(-2, 2) : 0), y); ctx.scale(big * u.face, big);
     // legs
     ctx.strokeStyle = dark; ctx.lineWidth = 2;
@@ -539,12 +582,11 @@ function drawUnit(u) {
     // carried stone
     for (let k = 0; k < u.carry; k++) drawBlock(x - 4, y - big * 23 - 8 - k * 7, 8);
   }
-  if (u.state === 'healing') text('+', u.x + 8, (T.air ? u.y - 14 : u.y - 30) - (now() * 20 % 10), 12, '#7dff7a', 'center', false);
   // health bar
   if (u.hp < T.hp) {
-    const top = T.air ? u.y - 16 : u.y - (u.type === 'bigguy' ? 52 : 34);
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(u.x - 10, top, 20, 3);
-    ctx.fillStyle = u.side.isYou ? '#7dff7a' : '#ff6b6b'; ctx.fillRect(u.x - 10, top, 20 * Math.max(0, u.hp / T.hp), 3);
+    const top = T.mega ? u.y - 30 : T.air ? u.y - 16 : u.y - (u.type === 'bigguy' ? 52 : 34), bw = T.mega ? 40 : 20;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(u.x - bw / 2, top, bw, 3);
+    ctx.fillStyle = u.side.isYou ? '#7dff7a' : '#ff6b6b'; ctx.fillRect(u.x - bw / 2, top, bw * Math.max(0, u.hp / T.hp), 3);
   }
 }
 function drawHud() {
@@ -567,14 +609,15 @@ function drawHud() {
   text(me.mana + '/' + MANA_MAX, W - 18, 333, 10, '#c77dff', 'right', false);
 
   CARDS.forEach((c, k) => {
-    const r = cardRect(k), info = TYPES[c] || ABIL[c], ok = me.mana >= info.cost, armed = me.armed === c;
+    const r = cardRect(k), info = TYPES[c] || ABIL[c], used = info.once && me.megaBought;
+    const ok = me.mana >= info.cost && !used, armed = me.armed === c;
     rr(r.x, r.y, r.w, r.h, 10);
     ctx.fillStyle = armed ? '#fff' : ABIL[c] ? (ok ? '#ff7b3a' : '#5a3a4a') : (ok ? '#4a2f7a' : '#3a2a4a'); ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = armed ? '#ffe066' : ok ? '#c77dff' : '#4a3a5a'; ctx.stroke();
     ctx.globalAlpha = ok ? 1 : 0.45;
     emoji(info.icon, r.x + r.w / 2, r.y + 18, 20);
     text(info.name, r.x + r.w / 2, r.y + 37, 11, armed ? '#2a1240' : '#fff', 'center', false);
-    text(info.cost + '🔮', r.x + r.w / 2, r.y + 49, 10, armed ? '#2a1240' : '#e0b3ff', 'center', false);
+    text(used ? 'USED' : info.cost + '🔮' + (info.once ? ' once' : ''), r.x + r.w / 2, r.y + 49, 10, armed ? '#2a1240' : '#e0b3ff', 'center', false);
     ctx.globalAlpha = 1;
   });
   if (me.armed) text(me.armed === 'abduct' ? 'Tap an enemy troop or a glowing top block' : 'Tap where to blow up', W / 2, 56, 14, '#ffe066');
@@ -585,6 +628,10 @@ function drawFx() {
     ctx.beginPath(); ctx.arc(b.x, b.y, b.small ? 5 + b.t * 45 : 20 + b.t * 120, 0, Math.PI * 2); ctx.fill();
   }
   ctx.globalAlpha = 1;
+  for (const b of S.bigBombs) {
+    ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = Math.sin(now() * 40) > 0 ? '#ffe066' : '#ff5a2a'; ctx.beginPath(); ctx.arc(b.x, b.y - 7, 2, 0, Math.PI * 2); ctx.fill();
+  }
   for (const sh of S.shots) {
     if (sh.bomb) {
       ctx.fillStyle = '#2a2a2a'; ctx.beginPath(); ctx.arc(sh.x, sh.y, 3, 0, Math.PI * 2); ctx.fill();
@@ -615,8 +662,8 @@ function drawTitle() {
   text('CONSPYRAMID', W / 2, 70, 52, '#ffe066');
   text('aliens built them. now they fight over them.', W / 2, 108, 15, '#fff');
   const lines = ['Spend 🔮 mana to send troops. They fetch stone and your pyramid builds itself.',
-                 '👽 Martians fight  🥷 Sneakies slip past  🦍 Big Guys haul lots  🚀 Battleships hunt',
-                 '🔨 Builders build faster  🛸 Your Saucer casts 🌀 Abduct and 💥 Explode',
+                 '👽 Martians fight  🥷 Sneakies only fight Sneakies  🦍 Big Guys haul lots  🚀 Battleships bomb',
+                 '🔨 Builders build faster  🛸 Saucer casts 🌀 Abduct + 💥 Explode  💣 Mega Ship (once per match)',
                  'Tallest pyramid after 2:30 wins, or finish your pyramid first!'];
   lines.forEach((l, k) => text(l, W / 2, 145 + k * 24, 13, k === 3 ? '#7dff7a' : '#fff'));
   if (Math.sin(t * 5) > -0.3) text('TAP TO START', W / 2, 362, 24, '#fff');
