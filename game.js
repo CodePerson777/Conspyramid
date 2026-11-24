@@ -11,10 +11,10 @@ const BASE = 10, BS = 15;           // pyramid: 10-wide base, 15px blocks (55 bl
 const QX = 400;                     // quarry center x
 const MATCH_TIME = 150;
 const MANA_MAX = 10, MANA_RATE = 3.0, START_MANA = 5;   // +1 mana every 3s
-const QUARRY_MAX = 24, QUARRY_START = 16, QUARRY_REGEN = 1.5;   // +1 quarry stone every 1.5s
+const QUARRY_MAX = 10, QUARRY_START = 4, QUARRY_REGEN = 2.0;   // +1 quarry stone every 2s (shared by both sides)
 const UNIT_CAP = 8;                 // per side
-const BUILD_TIME = 2.4;             // seconds per block with no builders
-const BUILDER_BONUS = 0.6;          // each builder adds +60% build speed (max 4 count)
+const BUILD_TIME = 4.0;             // seconds per block with no builders
+const BUILDER_BONUS = 0.5;          // each builder adds +50% build speed (max 4 count)
 const HEAL_RATE = 0.25;             // hurt troops heal 25% of max HP per second at home
 const FONT = '"Comic Sans MS", "Chalkboard SE", "Comic Neue", sans-serif';
 
