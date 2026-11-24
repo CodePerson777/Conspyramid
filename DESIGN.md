@@ -32,7 +32,7 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 ### Currencies
 | Currency | How you get it | Spent on |
 |----------|----------------|----------|
-| 🧱 **Stone** | Troops carry it back from the quarry, or steal it | Building your pyramid (and maybe deploying troops; see open questions) |
+| 🧱 **Stone** | Troops carry it back from the quarry, or steal it | Building your pyramid (automatic) |
 | 🔮 **Mana** | Fills up slowly over time | Deploying troops and casting special abilities |
 
 ### Troops
@@ -42,7 +42,8 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 | 🥷 **Sneaky** | Fast | 1 stone | No | Slips past enemy aliens without being attacked. Weak if caught by a UFO or ability. |
 | 🦍 **Big Guy** | Very slow | Lots (around 5) | No | Brings back a pile of stone, but enemies can beat him up and **take his stone**. Needs escorts. |
 | 🚀 **Battleship** (flying) | Medium | Nothing | Yes, only fights | Flies over the field and shoots enemy troops. Doesn't gather. |
-| 🛸 **Saucer** (special UFO pilot) | Fast, flying | 1–2 stone | No | Flies around collecting stone. It's the ship that casts **special abilities**. |
+| 🛸 **Saucer** (special UFO pilot) | Fast, flying | 1–2 stone | No | Flies around collecting stone. It's the ship that casts **special abilities**. You start with one. |
+| 🔨 **Builder** | Slow | Nothing | No | Stays at your pyramid and makes it build faster. |
 
 ### Rock-paper-scissors
 - Martians beat Sneakies and Big Guys in a fight.
@@ -57,7 +58,7 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 
 ### Pyramid rules
 - Blocks can only be removed if they're **exposed**, meaning nothing is resting on them (the top and outer surface).
-- **Win:** the tallest pyramid when time runs out (tie-breaker: most blocks).
+- **Win:** finish your whole pyramid first, or be tallest when time runs out (tie-breaker: most blocks).
 
 ### Spicy extras (to try later)
 - **Overtime:** last 30 seconds, mana fills twice as fast.
@@ -82,15 +83,15 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 - Conspiracy jokes: tinfoil hats, "the truth is out there" loading screens.
 
 ## Open questions
-- **What do troops cost: mana, stone, or both?** (Stone costs would make you choose between building and a bigger army.)
-- **Is building automatic** when stone gets home, or do you choose where blocks go?
-- **How do you deploy troops?** Tap a card to spawn at your pyramid?
-- **Saucer:** do you get one at the start, or deploy them like other troops?
+- ~~Troop cost~~: **mana only** for now.
+- ~~Building~~: **automatic** from stone at home; Builders speed it up.
+- ~~Deploying~~: tap a card and the troop spawns at your pyramid.
+- ~~Saucer~~: you start with one and can deploy more.
 - Matchmaking (start with bot battles).
 
 ## Build plan
 1. ~~Prototype v1: portrait, hands-on block placing vs bot~~ (done, felt boring)
-2. **Prototype v2:** landscape, troops (Martian, Sneaky, Big Guy, Battleship, Saucer), stone + mana, Abduct + Explode, vs bot.
+2. ~~**Prototype v2:** landscape, troops (Martian, Sneaky, Big Guy, Battleship, Builder, Saucer), stone + mana, Abduct + Explode, vs bot.~~ (done)
 3. Real 1v1 multiplayer.
 4. Home base and tech tree.
 5. Polish, more abilities, cosmetics.

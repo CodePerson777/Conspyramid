@@ -1,168 +1,274 @@
-// Conspyramid - battle prototype
-// One screen: you (left) vs a bot (right). Grab blocks from the quarry,
-// place them on your pyramid, abduct or blast the bot's exposed blocks.
+// Conspyramid - prototype v2 (landscape, troop command)
+// You (left, green) vs bot (right, purple). Spend mana to deploy troops.
+// Gatherers bring stone home, and your pyramid builds itself from stone.
+// Your Saucer casts Abduct and Explode.
 
 // ---------- Tuning ----------
-const W = 400, H = 700;          // logical screen size (portrait)
-const BASE = 7;                  // pyramid base width in blocks (also max height)
-const BS = 26;                   // block size in px
-const GROUND = 560;              // y of the ground line
-const UFO_Y = 300;               // resting height of UFOs
-const QUARRY = { x: 15, y: 60, w: 370, h: 190 };
-const MATCH_TIME = 150;          // seconds (2:30)
-const MAX_QUARRY = 3;            // max blocks lying around at once
-const SPAWN_MIN = 2.0, SPAWN_MAX = 3.5;
-const BLOCK_LIFE = 10;           // seconds before a quarry block vanishes
-const GOLD_CHANCE = 0.15;        // golden blocks give 2
-const COLLECT_TIME = 1.4;        // beam time to grab a quarry block
-const ABDUCT_TIME = 1.0;         // beam time to steal an enemy block
-const ENERGY_MAX = 10, ENERGY_RATE = 1.2; // +1 energy every 1.2s
-const COST = { abduct: 3, blast: 5, shield: 4 };
-const SHIELD_TIME = 5;
+const W = 800, H = 400;
+const GROUND = 300;                 // ground line (units walk around here)
+const BAR_Y = 326;                  // bottom UI bar starts here
+const BASE = 10, BS = 15;           // pyramid: 10-wide base, 15px blocks (55 blocks total)
+const QX = 400;                     // quarry center x
+const MATCH_TIME = 150;
+const MANA_MAX = 10, MANA_RATE = 1.3, START_MANA = 6;   // +1 mana every 1.3s
+const QUARRY_MAX = 24, QUARRY_START = 16, QUARRY_REGEN = 1.5;   // +1 quarry stone every 1.5s
+const UNIT_CAP = 18;                // per side
+const BUILD_TIME = 2.4;             // seconds per block with no builders
+const BUILDER_BONUS = 0.6;          // each builder adds +60% build speed (max 4 count)
 const FONT = '"Comic Sans MS", "Chalkboard SE", "Comic Neue", sans-serif';
 
-// ---------- Canvas setup ----------
+const TYPES = {
+  martian:    { name: 'Martian',    icon: '👽', cost: 3, hp: 30, speed: 45, carry: 1, mine: 0.9, dmg: 8,  range: 22, ground: true, gather: true, fights: true },
+  sneaky:     { name: 'Sneaky',     icon: '🥷', cost: 2, hp: 12, speed: 80, carry: 1, mine: 0.7, ground: true, gather: true, sneaky: true },
+  bigguy:     { name: 'Big Guy',    icon: '🦍', cost: 4, hp: 70, speed: 20, carry: 5, mine: 0.6, ground: true, gather: true },
+  battleship: { name: 'Battleship', icon: '🚀', cost: 5, hp: 45, speed: 55, dmg: 10, range: 85, air: true, fights: true },
+  builder:    { name: 'Builder',    icon: '🔨', cost: 3, hp: 20, speed: 35, ground: true, builder: true },
+  saucer:     { name: 'Saucer',     icon: '🛸', cost: 5, hp: 30, speed: 75, carry: 2, mine: 0.6, air: true, gather: true, saucer: true },
+};
+const ABIL = {
+  abduct:  { name: 'Abduct',  icon: '🌀', cost: 4 },
+  explode: { name: 'Explode', icon: '💥', cost: 6 },
+};
+const CARDS = ['martian', 'sneaky', 'bigguy', 'battleship', 'builder', 'saucer', 'abduct', 'explode'];
+
+// ---------- Canvas ----------
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let dpr = 1, scale = 1, offX = 0, offY = 0;
 function resize() {
   dpr = window.devicePixelRatio || 1;
-  canvas.width = innerWidth * dpr;
-  canvas.height = innerHeight * dpr;
-  canvas.style.width = innerWidth + 'px';
-  canvas.style.height = innerHeight + 'px';
+  canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
+  canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
   scale = Math.min(innerWidth / W, innerHeight / H);
-  offX = (innerWidth - W * scale) / 2;
-  offY = (innerHeight - H * scale) / 2;
+  offX = (innerWidth - W * scale) / 2; offY = (innerHeight - H * scale) / 2;
 }
-addEventListener('resize', resize);
-resize();
+addEventListener('resize', resize); resize();
 
-// ---------- Pyramid helpers ----------
-function makeSide(cx, name) {
-  const grid = [];
-  for (let r = 0; r < BASE; r++) grid.push(new Array(BASE - r).fill(0));
-  return { cx, name, grid, stash: 0, energy: 3, eTimer: 0, shieldUntil: 0,
-           beam: null, ufo: { x: cx, y: UFO_Y }, blastMode: false };
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+// ---------- Pyramid ----------
+const BUILD_ORDER = [];  // lowest row first, center outward
+for (let r = 0; r < BASE; r++) {
+  const n = BASE - r, idx = [...Array(n).keys()].sort((a, b) => Math.abs(a - (n - 1) / 2) - Math.abs(b - (n - 1) / 2));
+  for (const i of idx) BUILD_ORDER.push([r, i]);
 }
-function slotRect(p, r, i) {
-  return { x: p.cx - (BASE - r) * BS / 2 + i * BS, y: GROUND - (r + 1) * BS, w: BS, h: BS };
-}
-function slotCenter(p, r, i) { const s = slotRect(p, r, i); return { x: s.x + BS / 2, y: s.y + BS / 2 }; }
-function canPlace(p, r, i) {
-  if (p.grid[r][i]) return false;
-  return r === 0 || (p.grid[r - 1][i] && p.grid[r - 1][i + 1]);
-}
-// A block is exposed if nothing is resting on it (top or outer surface).
-function isExposed(p, r, i) {
-  if (!p.grid[r][i]) return false;
+function slotRect(s, r, i) { return { x: s.cx - (BASE - r) * BS / 2 + i * BS, y: GROUND - (r + 1) * BS, w: BS, h: BS }; }
+function slotCenter(s, r, i) { const q = slotRect(s, r, i); return { x: q.x + BS / 2, y: q.y + BS / 2 }; }
+function canPlace(s, r, i) { return !s.grid[r][i] && (r === 0 || (s.grid[r - 1][i] && s.grid[r - 1][i + 1])); }
+function isExposed(s, r, i) {
+  if (!s.grid[r][i]) return false;
   if (r + 1 >= BASE) return true;
-  const above = p.grid[r + 1];
-  if (i - 1 >= 0 && above[i - 1]) return false;
-  if (i < above.length && above[i]) return false;
-  return true;
+  const up = s.grid[r + 1];
+  return !((i - 1 >= 0 && up[i - 1]) || (i < up.length && up[i]));
 }
 function forSlots(fn) { for (let r = 0; r < BASE; r++) for (let i = 0; i < BASE - r; i++) fn(r, i); }
-function listSlots(p, test) { const out = []; forSlots((r, i) => { if (test(p, r, i)) out.push([r, i]); }); return out; }
-function height(p) { let h = 0; forSlots((r, i) => { if (p.grid[r][i]) h = Math.max(h, r + 1); }); return h; }
-function blockCount(p) { let n = 0; forSlots((r, i) => { n += p.grid[r][i]; }); return n; }
-function shielded(p) { return p.shieldUntil > S.t; }
+function listSlots(s, test) { const o = []; forSlots((r, i) => { if (test(s, r, i)) o.push([r, i]); }); return o; }
+function height(s) { let h = 0; forSlots((r, i) => { if (s.grid[r][i]) h = Math.max(h, r + 1); }); return h; }
+function blockCount(s) { let n = 0; forSlots((r, i) => { n += s.grid[r][i]; }); return n; }
 
-// ---------- Game state ----------
+// ---------- State ----------
 let mode = 'title';   // title | play | over
-let S = null;
+let S = null, nextId = 1;
+function makeSide(isYou) {
+  const dir = isYou ? 1 : -1, cx = isYou ? 92 : W - 92;
+  const grid = []; for (let r = 0; r < BASE; r++) grid.push(new Array(BASE - r).fill(0));
+  return { isYou, dir, cx, name: isYou ? 'YOU' : 'BOT', home: cx + dir * (BASE * BS / 2 + 12),
+           grid, stock: 0, mana: START_MANA, mTimer: 0, buildT: 0, units: [], armed: null };
+}
 function newGame() {
-  S = { t: 0, time: MATCH_TIME, quarry: [], spawnT: 0.5, parts: [], texts: [], zaps: [], botT: 1.5,
-        you: makeSide(105, 'YOU'), bot: makeSide(295, 'BOT') };
+  S = { t: 0, time: MATCH_TIME, quarry: QUARRY_START, qTimer: 0, loose: [], parts: [], texts: [], zaps: [],
+        booms: [], botT: 2, you: makeSide(true), bot: makeSide(false) };
   S.you.enemy = S.bot; S.bot.enemy = S.you;
+  for (const s of [S.you, S.bot]) { spawn(s, 'saucer'); spawn(s, 'martian'); }
   mode = 'play';
 }
-
-function say(x, y, text, color = '#fff') { S.texts.push({ x, y, text, color, t: 0 }); }
-function puff(x, y, color, n = 10, speed = 80) {
+function say(x, y, text, color = '#fff', size = 13) { S.texts.push({ x, y, text, color, size, t: 0 }); }
+function puff(x, y, color, n = 10, sp = 80) {
   for (let k = 0; k < n; k++) {
-    const a = Math.random() * Math.PI * 2, v = speed * (0.4 + Math.random());
-    S.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40, life: 0.6 + Math.random() * 0.4, t: 0, color });
+    const a = Math.random() * Math.PI * 2, v = sp * rand(0.4, 1.4);
+    S.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 40, life: rand(0.5, 1), t: 0, color });
   }
 }
 
-// ---------- Actions (shared by player and bot) ----------
-function place(p, r, i) {
-  p.grid[r][i] = 1; p.stash--;
-  const c = slotCenter(p, r, i); puff(c.x, c.y, '#f3d38a', 6, 50);
+// ---------- Units ----------
+function spawn(s, type) {
+  const T = TYPES[type];
+  const u = { id: nextId++, type, T, side: s, hp: T.hp, carry: 0, mineT: 0, waitT: 0, state: 'toQuarry',
+              face: s.dir, task: null, shootAt: null };
+  if (T.air) { u.x = s.cx; u.y = rand(60, 120); }
+  else { u.x = s.home; u.y = GROUND + rand(-6, 10); }
+  u.qx = QX - s.dir * rand(0, 28);
+  if (T.builder) u.station = Math.min(W - 10, Math.max(10, s.cx - s.dir * (BASE * BS / 2 + rand(2, 14))));
+  s.units.push(u);
+  return u;
 }
-function startCollect(p, q) {
-  q.claimedBy = p; q.vx = q.vy = 0;
-  p.beam = { kind: 'collect', q, t: 0, dur: COLLECT_TIME };
+function deploy(s, type) {
+  const T = TYPES[type];
+  if (s.units.length >= UNIT_CAP) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Too many troops!', '#f88'); return false; }
+  if (s.mana < T.cost) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Need ' + T.cost + ' mana', '#f88'); return false; }
+  s.mana -= T.cost; spawn(s, type);
+  return true;
 }
-function startAbduct(p, r, i) {
-  p.energy -= COST.abduct;
-  p.beam = { kind: 'abduct', r, i, t: 0, dur: ABDUCT_TIME };
+function moveTo(u, tx, ty, dt, spd) {
+  const dx = tx - u.x, dy = ty - u.y, d = Math.hypot(dx, dy), step = (spd || u.T.speed) * dt;
+  if (Math.abs(dx) > 1) u.face = Math.sign(dx);
+  if (d <= step) { u.x = tx; u.y = ty; return true; }
+  u.x += dx / d * step; u.y += dy / d * step; return false;
 }
-function blast(p, r, i) {
-  const e = p.enemy; p.energy -= COST.blast; p.blastMode = false;
-  const c = slotCenter(e, r, i);
-  S.zaps.push({ x1: p.ufo.x, y1: p.ufo.y + 10, x2: c.x, y2: c.y, t: 0 });
-  if (shielded(e)) { say(c.x, c.y - 20, 'BLOCKED!', '#8ef'); return; }
-  const hits = [[r, i]];
-  for (const d of [-1, 1]) { const j = i + d; if (j >= 0 && j < BASE - r && isExposed(e, r, j)) hits.push([r, j]); }
-  for (const [a, b] of hits) { const s = slotCenter(e, a, b); e.grid[a][b] = 0; puff(s.x, s.y, '#ff7b3a', 14, 140); }
-  say(c.x, c.y - 20, 'KABOOM!', '#ffb347');
-}
-function shield(p) {
-  p.energy -= COST.shield; p.shieldUntil = S.t + SHIELD_TIME;
-  say(p.cx, GROUND - BASE * BS - 20, 'SHIELD UP', '#8ef');
-}
-function beamTarget(p) {
-  const b = p.beam;
-  if (b.kind === 'collect') return { x: b.q.x, y: b.q.y };
-  return slotCenter(p.enemy, b.r, b.i);
-}
-function updateBeam(p, dt) {
-  const b = p.beam; if (!b) return;
-  if (b.kind === 'collect' && !S.quarry.includes(b.q)) { p.beam = null; return; }
-  b.t += dt;
-  if (b.kind === 'collect') { // block floats up toward the UFO
-    b.q.y += (p.ufo.y + 25 - b.q.y) * Math.min(1, dt * 1.5) * (b.t / b.dur);
+function enemiesOf(u) { return u.side.enemy.units; }
+function nearestEnemy(u, maxD, filter) {
+  let best = null, bd = maxD;
+  for (const e of enemiesOf(u)) {
+    if (e.hp <= 0 || (filter && !filter(e))) continue;
+    const d = Math.hypot(e.x - u.x, e.y - u.y); if (d < bd) { bd = d; best = e; }
   }
-  if (b.t < b.dur) return;
-  if (b.kind === 'collect') {
-    const n = b.q.gold ? 2 : 1; p.stash += n;
-    S.quarry.splice(S.quarry.indexOf(b.q), 1);
-    if (p === S.you) say(b.q.x, b.q.y - 15, '+' + n + ' block' + (n > 1 ? 's' : ''), b.q.gold ? '#ffd700' : '#fff');
-  } else {
-    const e = p.enemy, c = slotCenter(e, b.r, b.i);
-    if (shielded(e)) say(c.x, c.y - 20, 'BLOCKED!', '#8ef');
-    else if (isExposed(e, b.r, b.i)) {
-      e.grid[b.r][b.i] = 0; p.stash++;
-      puff(c.x, c.y, '#7dff7a', 10, 60);
-      say(c.x, c.y - 20, 'ABDUCTED!', '#7dff7a');
+  return best;
+}
+function kill(u, dropStone = true) {
+  u.hp = 0;
+  if (dropStone && u.carry > 0) { S.loose.push({ x: u.x, y: GROUND + rand(0, 8), n: u.carry }); }
+  u.carry = 0;
+  puff(u.x, u.y - 10, u.side.isYou ? '#6be86b' : '#c07bff', 12, 90);
+}
+
+function updateGatherer(u, dt) {
+  const s = u.side, T = u.T;
+  // Martians stop to fight enemy ground troops (they can't see Sneakies).
+  if (T.fights) {
+    const foe = nearestEnemy(u, T.range, e => e.T.ground && !e.T.sneaky);
+    if (foe) { foe.hp -= T.dmg * dt; u.face = Math.sign(foe.x - u.x) || u.face; u.hitting = foe; if (foe.hp <= 0) kill(foe); return; }
+  }
+  u.hitting = null;
+  // Pick up dropped stone (e.g. from a fallen Big Guy).
+  if (T.ground && u.carry < T.carry) {
+    for (const l of S.loose) {
+      if (l.n > 0 && Math.abs(l.x - u.x) < 14) {
+        const take = Math.min(l.n, T.carry - u.carry); l.n -= take; u.carry += take;
+        if (s.isYou) say(u.x, u.y - 30, '+' + take, '#ffd27a');
+        if (u.carry >= T.carry) u.state = 'toHome';
+      }
+    }
+    S.loose = S.loose.filter(l => l.n > 0);
+  }
+  const homeY = T.air ? 170 : u.y, qy = T.air ? 235 : u.y;
+  if (u.state === 'toQuarry') {
+    if (moveTo(u, u.qx, qy, dt)) { u.state = 'mining'; u.mineT = 0; u.waitT = 0; }
+  } else if (u.state === 'mining') {
+    if (S.quarry > 0) { u.mineT += dt; if (u.mineT >= T.mine) { u.mineT = 0; S.quarry--; u.carry++; } }
+    else u.waitT += dt;
+    if (u.carry >= T.carry || (u.carry > 0 && u.waitT > 3)) u.state = 'toHome';
+  } else if (u.state === 'toHome') {
+    if (moveTo(u, s.home, homeY, dt)) {
+      if (u.carry) { s.stock += u.carry; if (s.isYou) say(s.home, u.y - 30, '+' + u.carry + ' stone', '#ffd27a'); }
+      u.carry = 0; u.state = 'toQuarry'; u.qx = QX - s.dir * rand(0, 28);
     }
   }
-  p.beam = null;
+}
+function updateBattleship(u, dt) {
+  const s = u.side;
+  const tgt = nearestEnemy(u, 9999);
+  u.shootAt = null;
+  if (!tgt) { moveTo(u, QX - s.dir * 70, 100, dt); return; }
+  const d = Math.hypot(tgt.x - u.x, tgt.y - u.y);
+  if (d <= u.T.range) { tgt.hp -= u.T.dmg * dt; u.shootAt = tgt; u.face = Math.sign(tgt.x - u.x) || u.face; if (tgt.hp <= 0) kill(tgt); }
+  else moveTo(u, tgt.x - s.dir * 40, tgt.T.air ? tgt.y : 175, dt);
+}
+function updateSaucer(u, dt) {
+  const t = u.task;
+  if (!t) { updateGatherer(u, dt); return; }
+  const s = u.side, e = s.enemy;
+  if (t.kind === 'abductUnit' && t.target.hp <= 0) { u.task = null; return; }
+  let tx, ty;
+  if (t.kind === 'abductUnit') { tx = t.target.x; ty = t.target.y - 50; }
+  else if (t.kind === 'abductBlock') { const c = slotCenter(e, t.r, t.i); tx = c.x; ty = c.y - 45; }
+  else { tx = t.x; ty = Math.max(50, t.y - 70); }
+  const there = moveTo(u, tx, ty, dt, 200);
+  if (!there && !t.beaming) return;
+  if (t.kind === 'explode') {
+    boom(s, t.x, t.y); u.task = null; return;
+  }
+  t.beaming = true; t.bt = (t.bt || 0) + dt;
+  if (t.bt < 0.8) return;
+  if (t.kind === 'abductUnit') {
+    const v = t.target; s.stock += v.carry; v.carry = 0;
+    say(v.x, v.y - 30, 'ABDUCTED!', '#7dff7a');
+    puff(v.x, v.y - 10, '#7dff7a', 10, 60); v.hp = 0;
+  } else {
+    const c = slotCenter(e, t.r, t.i);
+    if (isExposed(e, t.r, t.i)) { e.grid[t.r][t.i] = 0; s.stock++; say(c.x, c.y - 20, 'STOLEN!', '#7dff7a'); puff(c.x, c.y, '#7dff7a', 8, 50); }
+  }
+  u.task = null;
+}
+function updateBuilder(u, dt) { moveTo(u, u.station, u.y, dt); }
+
+function boom(s, x, y) {
+  const e = s.enemy, R = 60;
+  S.booms.push({ x, y, t: 0 });
+  puff(x, y, '#ff7b3a', 24, 160); puff(x, y, '#ffe066', 12, 120);
+  for (const v of e.units) if (Math.hypot(v.x - x, v.y - y) < R) { v.hp -= 45; if (v.hp <= 0) kill(v); }
+  const hits = listSlots(e, isExposed).filter(([r, i]) => { const c = slotCenter(e, r, i); return Math.hypot(c.x - x, c.y - y) < R; })
+    .sort((a, b) => b[0] - a[0]).slice(0, 3);
+  for (const [r, i] of hits) e.grid[r][i] = 0;
+  say(x, y - 30, hits.length ? 'KABOOM! -' + hits.length + ' blocks' : 'KABOOM!', '#ffb347', 16);
+}
+
+// ---------- Abilities ----------
+function freeSaucer(s, x) {
+  const ss = s.units.filter(u => u.T.saucer && u.hp > 0);
+  if (!ss.length) return null;
+  const idle = ss.filter(u => !u.task); const pool = idle.length ? idle : ss;
+  return pool.reduce((a, b) => (Math.abs(a.x - x) < Math.abs(b.x - x) ? a : b));
+}
+function cast(s, kind, x, y) {   // returns true if cast
+  const cost = ABIL[kind].cost;
+  if (s.mana < cost) return false;
+  const e = s.enemy;
+  let task = null;
+  if (kind === 'explode') task = { kind: 'explode', x, y };
+  else {
+    const unit = e.units.filter(v => v.hp > 0 && Math.hypot(v.x - x, (v.y - 10) - y) < 22)
+      .sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
+    if (unit) task = { kind: 'abductUnit', target: unit };
+    else {
+      let blk = null; forSlots((r, i) => { const q = slotRect(e, r, i); if (isExposed(e, r, i) && x > q.x - 5 && x < q.x + BS + 5 && y > q.y - 5 && y < q.y + BS + 5) blk = [r, i]; });
+      if (blk) task = { kind: 'abductBlock', r: blk[0], i: blk[1] };
+    }
+    if (!task) { if (s.isYou) say(x, y - 15, 'Tap an enemy or a top block', '#f88'); return false; }
+  }
+  const sc = freeSaucer(s, x);
+  if (!sc) { if (s.isYou) say(x, y - 15, 'No Saucer!', '#f88'); return false; }
+  s.mana -= cost; sc.task = task; sc.state = 'toHome';
+  return true;
 }
 
 // ---------- Bot brain ----------
 function botThink() {
   const b = S.bot, y = S.you;
-  if (b.stash > 0) {
-    const slots = listSlots(b, canPlace);
-    if (slots.length) {
-      const minR = Math.min(...slots.map(s => s[0]));
-      const opts = slots.filter(s => s[0] === minR);
-      const [r, i] = opts[Math.floor(Math.random() * opts.length)];
-      place(b, r, i); return;
-    }
+  const count = (s, t) => s.units.filter(u => u.type === t).length;
+  const hasSaucer = count(b, 'saucer') > 0;
+  // Abilities
+  if (hasSaucer && b.mana >= ABIL.explode.cost && Math.random() < 0.5) {
+    const c = y.units.find(u => y.units.filter(v => Math.hypot(v.x - u.x, v.y - u.y) < 55).length >= 3);
+    if (c) { cast(b, 'explode', c.x, c.y - 10); return; }
   }
-  if (y.beam && y.beam.kind === 'abduct' && b.energy >= COST.shield && !shielded(b) && Math.random() < 0.5) { shield(b); return; }
-  if (b.beam) return;
-  const exp = listSlots(y, isExposed).sort((a, c) => c[0] - a[0]);
-  if (!shielded(y) && exp.length && exp[0][0] >= 1) {
-    if (b.energy >= COST.blast && Math.random() < 0.3) { blast(b, ...exp[0]); return; }
-    if (b.energy >= COST.abduct && Math.random() < 0.4) { startAbduct(b, ...exp[0]); return; }
+  if (hasSaucer && b.mana >= ABIL.abduct.cost && Math.random() < 0.35) {
+    const big = y.units.find(u => u.carry >= 3);
+    if (big) { cast(b, 'abduct', big.x, big.y - 10); return; }
+    const top = listSlots(y, isExposed).sort((a, c) => c[0] - a[0])[0];
+    if (top && top[0] >= 2) { const c = slotCenter(y, ...top); cast(b, 'abduct', c.x, c.y); return; }
   }
-  const free = S.quarry.filter(q => !q.claimedBy);
-  if (free.length) startCollect(b, free[Math.floor(Math.random() * free.length)]);
+  // Deploy
+  let want;
+  if (!hasSaucer) want = 'saucer';
+  else if (count(b, 'builder') < 1 && S.t > 8) want = 'builder';
+  else if (count(y, 'martian') > count(b, 'martian') + 1) want = Math.random() < 0.5 ? 'battleship' : 'martian';
+  else {
+    const w = { martian: 4, sneaky: 2, bigguy: 1.5, battleship: 1.2, builder: count(b, 'builder') < 3 ? 0.8 : 0 };
+    let r = Math.random() * Object.values(w).reduce((a, c) => a + c, 0);
+    for (const k in w) { r -= w[k]; if (r <= 0) { want = k; break; } }
+  }
+  if (want && b.mana >= TYPES[want].cost) deploy(b, want);
 }
 
 // ---------- Update ----------
@@ -172,63 +278,59 @@ function update(dt) {
   S.time -= dt;
   if (S.time <= 0) { S.time = 0; endMatch(); return; }
 
-  S.spawnT -= dt;
-  if (S.spawnT <= 0 && S.quarry.length < MAX_QUARRY) {
-    S.quarry.push({ x: QUARRY.x + 30 + Math.random() * (QUARRY.w - 60), y: QUARRY.y + 40 + Math.random() * (QUARRY.h - 70),
-                    vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 30,
-                    gold: Math.random() < GOLD_CHANCE, life: BLOCK_LIFE, claimedBy: null });
-    S.spawnT = SPAWN_MIN + Math.random() * (SPAWN_MAX - SPAWN_MIN);
-  }
-  for (let k = S.quarry.length - 1; k >= 0; k--) {
-    const q = S.quarry[k];
-    if (q.claimedBy) continue;
-    q.x += q.vx * dt; q.y += q.vy * dt; q.life -= dt;
-    if (q.x < QUARRY.x + 15 || q.x > QUARRY.x + QUARRY.w - 15) q.vx *= -1;
-    if (q.y < QUARRY.y + 30 || q.y > QUARRY.y + QUARRY.h - 15) q.vy *= -1;
-    if (q.life <= 0) { puff(q.x, q.y, '#c9b28a', 8, 40); S.quarry.splice(k, 1); }
-  }
+  S.qTimer += dt;
+  if (S.qTimer >= QUARRY_REGEN) { S.qTimer = 0; S.quarry = Math.min(QUARRY_MAX, S.quarry + 1); }
 
-  for (const p of [S.you, S.bot]) {
-    p.eTimer += dt;
-    while (p.eTimer >= ENERGY_RATE) { p.eTimer -= ENERGY_RATE; p.energy = Math.min(ENERGY_MAX, p.energy + 1); }
-    updateBeam(p, dt);
-    let tx = p.cx, ty = UFO_Y;
-    if (p.beam) { const t = beamTarget(p); tx = t.x; ty = Math.max(40, t.y - 55); }
-    p.ufo.x += (tx - p.ufo.x) * Math.min(1, dt * 6);
-    p.ufo.y += (ty - p.ufo.y) * Math.min(1, dt * 6);
+  for (const s of [S.you, S.bot]) {
+    s.mTimer += dt;
+    while (s.mTimer >= MANA_RATE) { s.mTimer -= MANA_RATE; s.mana = Math.min(MANA_MAX, s.mana + 1); }
+    for (const u of s.units) {
+      if (u.hp <= 0) continue;
+      if (u.T.saucer) updateSaucer(u, dt);
+      else if (u.T.gather) updateGatherer(u, dt);
+      else if (u.T.builder) updateBuilder(u, dt);
+      else if (u.type === 'battleship') updateBattleship(u, dt);
+    }
+    // Auto-build: builders make it faster.
+    const builders = Math.min(4, s.units.filter(u => u.T.builder && u.hp > 0).length);
+    const interval = BUILD_TIME / (1 + BUILDER_BONUS * builders);
+    s.buildT = Math.min(interval, s.buildT + dt);
+    if (s.stock > 0 && s.buildT >= interval) {
+      const slot = BUILD_ORDER.find(([r, i]) => canPlace(s, r, i));
+      if (slot) {
+        s.grid[slot[0]][slot[1]] = 1; s.stock--; s.buildT = 0;
+        const c = slotCenter(s, ...slot); puff(c.x, c.y, '#f3d38a', 5, 40);
+        if (blockCount(s) === BASE * (BASE + 1) / 2) { endMatch(s); return; }
+      }
+    }
   }
+  for (const s of [S.you, S.bot]) s.units = s.units.filter(u => u.hp > 0);
 
   S.botT -= dt;
-  if (S.botT <= 0) { botThink(); S.botT = 0.9 + Math.random() * 0.7; }
-
+  if (S.botT <= 0) { botThink(); S.botT = rand(0.9, 1.5); }
   updateFx(dt);
 }
 function updateFx(dt) {
   for (const p of S.parts) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 200 * dt; }
   S.parts = S.parts.filter(p => p.t < p.life);
   for (const t of S.texts) t.t += dt;
-  S.texts = S.texts.filter(t => t.t < 1.2);
-  for (const z of S.zaps) z.t += dt;
-  S.zaps = S.zaps.filter(z => z.t < 0.25);
+  S.texts = S.texts.filter(t => t.t < 1.3);
+  for (const b of S.booms) b.t += dt;
+  S.booms = S.booms.filter(b => b.t < 0.4);
 }
-function endMatch() {
-  mode = 'over';
+function endMatch(capper) {
+  mode = 'over'; S.overAt = S.t;
+  if (capper) { S.result = capper.isYou ? 'win' : 'lose'; S.reason = 'Pyramid completed!'; return; }
   const hy = height(S.you), hb = height(S.bot), cy = blockCount(S.you), cb = blockCount(S.bot);
   S.result = hy !== hb ? (hy > hb ? 'win' : 'lose') : cy !== cb ? (cy > cb ? 'win' : 'lose') : 'draw';
-  S.overAt = S.t;
+  S.reason = 'Time up!';
 }
 
 // ---------- Input ----------
-const BTN = {
-  blast:  { x: 15,  y: 615, w: 180, h: 60 },
-  shield: { x: 205, y: 615, w: 180, h: 60 },
-};
-function inRect(x, y, r, pad = 0) { return x >= r.x - pad && x <= r.x + r.w + pad && y >= r.y - pad && y <= r.y + r.h + pad; }
-function hitSlot(p, x, y, test) {
-  let best = null;
-  forSlots((r, i) => { if (test(p, r, i) && inRect(x, y, slotRect(p, r, i), 4)) best = [r, i]; });
-  return best;
-}
+const CARD_W = 88, CARD_GAP = 8, CARD_Y = 340, CARD_H = 56;
+const CARD_X0 = (W - CARDS.length * CARD_W - (CARDS.length - 1) * CARD_GAP) / 2;
+function cardRect(k) { return { x: CARD_X0 + k * (CARD_W + CARD_GAP), y: CARD_Y, w: CARD_W, h: CARD_H }; }
+function inRect(x, y, r) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
 canvas.addEventListener('pointerdown', e => {
   e.preventDefault();
   const x = (e.clientX - offX) / scale, y = (e.clientY - offY) / scale;
@@ -237,209 +339,233 @@ canvas.addEventListener('pointerdown', e => {
   tap(x, y);
 });
 function tap(x, y) {
-  const me = S.you, foe = S.bot;
-  if (inRect(x, y, BTN.blast)) {
-    if (me.blastMode) me.blastMode = false;
-    else if (me.energy < COST.blast) say(x, y - 10, 'Need ' + COST.blast + ' energy', '#f88');
-    else me.blastMode = true;
+  const me = S.you;
+  for (let k = 0; k < CARDS.length; k++) {
+    if (!inRect(x, y, cardRect(k))) continue;
+    const c = CARDS[k];
+    if (ABIL[c]) {
+      if (me.armed === c) me.armed = null;
+      else if (me.mana < ABIL[c].cost) say(W / 2, BAR_Y - 30, 'Need ' + ABIL[c].cost + ' mana', '#f88');
+      else if (!me.units.some(u => u.T.saucer)) say(W / 2, BAR_Y - 30, 'No Saucer! Deploy one first', '#f88');
+      else me.armed = c;
+    } else { me.armed = null; deploy(me, c); }
     return;
   }
-  if (inRect(x, y, BTN.shield)) {
-    if (shielded(me)) say(x, y - 10, 'Already shielded', '#8ef');
-    else if (me.energy < COST.shield) say(x, y - 10, 'Need ' + COST.shield + ' energy', '#f88');
-    else shield(me);
-    return;
-  }
-  // enemy pyramid
-  const target = hitSlot(foe, x, y, isExposed);
-  if (target) {
-    if (me.blastMode) { blast(me, ...target); return; }
-    if (me.beam) { say(x, y - 15, 'Beam busy!', '#f88'); return; }
-    if (me.energy < COST.abduct) { say(x, y - 15, 'Need ' + COST.abduct + ' energy', '#f88'); return; }
-    startAbduct(me, ...target); return;
-  }
-  me.blastMode = false;
-  // quarry blocks
-  for (const q of S.quarry) {
-    if (Math.hypot(q.x - x, q.y - y) < 24) {
-      if (q.claimedBy === foe) { say(x, y - 15, 'Taken!', '#f88'); return; }
-      if (q.claimedBy === me) return;
-      if (me.beam) { say(x, y - 15, 'Beam busy!', '#f88'); return; }
-      startCollect(me, q); return;
-    }
-  }
-  // own pyramid
-  const slot = hitSlot(me, x, y, canPlace);
-  if (slot) {
-    if (me.stash <= 0) { say(x, y - 15, 'No blocks!', '#f88'); return; }
-    place(me, ...slot);
-  }
+  if (me.armed && y < BAR_Y) { if (cast(me, me.armed, x, y)) me.armed = null; }
 }
 
 // ---------- Drawing ----------
 function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
 function text(str, x, y, size, color, align = 'center', stroke = true) {
   ctx.font = 'bold ' + size + 'px ' + FONT; ctx.textAlign = align; ctx.textBaseline = 'middle';
-  if (stroke) { ctx.lineWidth = Math.max(3, size / 6); ctx.strokeStyle = '#2a1240'; ctx.strokeText(str, x, y); }
+  if (stroke) { ctx.lineWidth = Math.max(3, size / 5); ctx.strokeStyle = '#2a1240'; ctx.strokeText(str, x, y); }
   ctx.fillStyle = color; ctx.fillText(str, x, y);
 }
-const STARS = Array.from({ length: 40 }, () => [Math.random() * W, Math.random() * 300, Math.random() * 1.5 + 0.5]);
+function emoji(ch, x, y, size) { ctx.font = size + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ch, x, y); }
+const STARS = Array.from({ length: 60 }, () => [Math.random() * W, Math.random() * 200, rand(0.5, 2)]);
+const now = () => (S ? S.t : titleT);
 
 function drawBackground() {
   const g = ctx.createLinearGradient(0, 0, 0, GROUND);
-  g.addColorStop(0, '#2b1055'); g.addColorStop(0.6, '#a24a8a'); g.addColorStop(1, '#ffb27a');
+  g.addColorStop(0, '#2b1055'); g.addColorStop(0.65, '#a24a8a'); g.addColorStop(1, '#ffb27a');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, GROUND);
   ctx.fillStyle = '#fff';
-  for (const [x, y, s] of STARS) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(S ? S.t * 2 + x : x); ctx.fillRect(x, y, s, s); }
+  for (const [x, y, s] of STARS) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(now() * 2 + x); ctx.fillRect(x, y, s, s); }
   ctx.globalAlpha = 1;
-  ctx.fillStyle = '#e8c27a'; ctx.fillRect(0, GROUND, W, H - GROUND);
+  ctx.fillStyle = '#ffe9a8'; ctx.beginPath(); ctx.arc(615, 120, 16, 0, Math.PI * 2); ctx.fill();   // moon
+  ctx.fillStyle = '#e8c27a'; ctx.fillRect(0, GROUND, W, BAR_Y - GROUND);
   ctx.fillStyle = '#d4a85c';
-  for (let k = 0; k < 12; k++) ctx.fillRect((k * 37) % W, GROUND + 8 + (k * 13) % 30, 14, 3);
+  for (let k = 0; k < 18; k++) ctx.fillRect((k * 53) % W, GROUND + 6 + (k * 7) % 16, 12, 2);
 }
-function drawBlock(x, y, gold, alpha = 1) {
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = gold ? '#ffd700' : '#d9a441';
-  ctx.fillRect(x + 1, y + 1, BS - 2, BS - 2);
-  ctx.fillStyle = gold ? '#fff3a0' : '#efc56f';
-  ctx.fillRect(x + 3, y + 3, BS - 6, 4);
-  ctx.strokeStyle = gold ? '#a07800' : '#8a5a1c'; ctx.lineWidth = 2;
-  ctx.strokeRect(x + 1, y + 1, BS - 2, BS - 2);
-  ctx.globalAlpha = 1;
+function drawBlock(x, y, size = BS, gold = false) {
+  ctx.fillStyle = gold ? '#ffd700' : '#d9a441'; ctx.fillRect(x + 0.5, y + 0.5, size - 1, size - 1);
+  ctx.fillStyle = gold ? '#fff3a0' : '#efc56f'; ctx.fillRect(x + 2, y + 2, size - 4, Math.max(2, size / 6));
+  ctx.strokeStyle = '#8a5a1c'; ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
 }
-function drawPyramid(p, isMe) {
-  const me = S.you;
+function drawPyramid(s) {
+  const me = S.you, targeting = me.armed === 'abduct' && !s.isYou;
   forSlots((r, i) => {
-    const s = slotRect(p, r, i);
-    if (p.grid[r][i]) {
-      drawBlock(s.x, s.y, false);
-      if (!isMe && isExposed(p, r, i) && mode === 'play') { // show targets
-        ctx.strokeStyle = me.blastMode ? '#ff5a2a' : 'rgba(125,255,122,0.8)';
-        ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
-        ctx.strokeRect(s.x + 3, s.y + 3, BS - 6, BS - 6); ctx.setLineDash([]);
-      }
-    } else if (isMe && me.stash > 0 && canPlace(p, r, i) && mode === 'play') {
-      ctx.strokeStyle = 'rgba(255,255,255,' + (0.5 + 0.3 * Math.sin(S.t * 6)) + ')';
-      ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
-      ctx.strokeRect(s.x + 2, s.y + 2, BS - 4, BS - 4); ctx.setLineDash([]);
+    const q = slotRect(s, r, i);
+    if (s.grid[r][i]) {
+      drawBlock(q.x, q.y);
+      if (targeting && isExposed(s, r, i)) { ctx.strokeStyle = '#7dff7a'; ctx.lineWidth = 2; ctx.strokeRect(q.x + 2, q.y + 2, BS - 4, BS - 4); }
+    } else if (canPlace(s, r, i) && r < height(s) + 1) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.strokeRect(q.x + 1, q.y + 1, BS - 2, BS - 2);
     }
   });
-  if (shielded(p)) {
-    const left = p.shieldUntil - S.t;
-    ctx.globalAlpha = left < 1.5 ? 0.25 + 0.2 * Math.sin(S.t * 20) : 0.35;
-    ctx.fillStyle = '#7fe0ff';
-    ctx.beginPath(); ctx.ellipse(p.cx, GROUND, BASE * BS / 2 + 12, BASE * BS + 15, 0, Math.PI, 0); ctx.fill();
-    ctx.globalAlpha = 1;
-  }
-  text(p.name + '  ▲' + height(p), p.cx, GROUND + 18, 16, isMe ? '#7dff7a' : '#ff8a8a');
-}
-function drawUfo(p, isMe) {
-  const { x } = p.ufo, y = p.ufo.y + Math.sin(S.t * 3 + (isMe ? 0 : 2)) * 4;
-  if (p.beam) {
-    const t = beamTarget(p);
-    ctx.fillStyle = p.beam.kind === 'abduct' ? 'rgba(125,255,122,0.35)' : 'rgba(200,255,150,0.3)';
-    ctx.beginPath(); ctx.moveTo(x - 10, y + 8); ctx.lineTo(x + 10, y + 8);
-    ctx.lineTo(t.x + 18, t.y + 14); ctx.lineTo(t.x - 18, t.y + 14); ctx.closePath(); ctx.fill();
-    // progress ring
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(t.x, t.y, 18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (p.beam.t / p.beam.dur)); ctx.stroke();
-  }
-  ctx.fillStyle = isMe ? '#9be7ff' : '#ffb0d0';
-  ctx.beginPath(); ctx.ellipse(x, y - 6, 12, 11, 0, Math.PI, 0); ctx.fill();
-  ctx.font = '16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(isMe ? '👽' : '👾', x, y - 9);
-  ctx.fillStyle = isMe ? '#5a6b7d' : '#7d5a6b';
-  ctx.beginPath(); ctx.ellipse(x, y + 2, 28, 8, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#ffe066';
-  for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.arc(x + k * 10, y + 3, 2.2, 0, Math.PI * 2); ctx.fill(); }
+  // stockpile next to the pyramid
+  const sx = s.home + s.dir * 4;
+  for (let k = 0; k < Math.min(s.stock, 6); k++) drawBlock(sx - 5 + (k % 3) * 5 * s.dir, GROUND - 8 - Math.floor(k / 3) * 8, 9);
+  if (s.stock > 0) text('🧱' + s.stock, sx, GROUND - 32, 11, '#fff');
 }
 function drawQuarry() {
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2; ctx.setLineDash([8, 6]);
-  rr(QUARRY.x, QUARRY.y, QUARRY.w, QUARRY.h, 14); ctx.stroke(); ctx.setLineDash([]);
-  text('QUARRY - tap blocks to beam them up', W / 2, QUARRY.y + 14, 12, 'rgba(255,255,255,0.7)', 'center', false);
-  for (const q of S.quarry) {
-    const fade = !q.claimedBy && q.life < 2 ? (Math.sin(S.t * 20) > 0 ? 1 : 0.3) : 1;
-    drawBlock(q.x - BS / 2, q.y - BS / 2 + (q.claimedBy ? 0 : Math.sin(S.t * 4 + q.x) * 2), q.gold, fade);
+  const n = S.quarry, rows = [8, 6, 5, 3, 2];
+  let left = n, y = GROUND;
+  for (const w of rows) {
+    const c = Math.min(w, left); if (c <= 0) break;
+    for (let k = 0; k < c; k++) drawBlock(QX - c * 6 + k * 12, y - 12, 12);
+    left -= c; y -= 12;
+  }
+  text('QUARRY ' + n, QX, GROUND + 14, 11, '#6b4a1f', 'center', false);
+  for (const l of S.loose) for (let k = 0; k < Math.min(l.n, 4); k++) drawBlock(l.x - 8 + k * 5, l.y - 6 - (k % 2) * 4, 9);
+}
+function bob(u, amt) { return Math.sin(now() * 10 + u.id) * amt; }
+function drawUnit(u) {
+  const you = u.side.isYou, body = you ? '#6be86b' : '#c07bff', dark = you ? '#2f8a3a' : '#6a2fa8';
+  const x = u.x, T = u.T;
+  ctx.save();
+  if (T.air) {
+    const y = u.y + Math.sin(now() * 3 + u.id) * 3;
+    if (u.type === 'battleship') {
+      ctx.translate(x, y); ctx.scale(u.face, 1);
+      ctx.fillStyle = '#7a8496'; rr(-18, -5, 36, 10, 5); ctx.fill();
+      ctx.fillStyle = '#4b5263'; ctx.beginPath(); ctx.moveTo(-18, -5); ctx.lineTo(-26, -10); ctx.lineTo(-22, 0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = body; ctx.beginPath(); ctx.ellipse(4, -6, 7, 5, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#ffb347'; ctx.fillRect(-24, -2, 5 + Math.random() * 3, 4);
+      ctx.restore();
+      if (u.shootAt) {
+        ctx.strokeStyle = you ? '#7dff7a' : '#ff6bd6'; ctx.lineWidth = 2; ctx.globalAlpha = 0.5 + Math.random() * 0.5;
+        ctx.beginPath(); ctx.moveTo(x + u.face * 18, y); ctx.lineTo(u.shootAt.x, u.shootAt.y - 8); ctx.stroke(); ctx.globalAlpha = 1;
+      }
+    } else { // saucer
+      const t = u.task;
+      if (t && t.beaming) {
+        ctx.fillStyle = 'rgba(125,255,122,0.35)';
+        const ty = t.kind === 'abductUnit' ? t.target.y : u.y + 45;
+        ctx.beginPath(); ctx.moveTo(x - 8, y + 6); ctx.lineTo(x + 8, y + 6); ctx.lineTo(x + 18, ty + 6); ctx.lineTo(x - 18, ty + 6); ctx.closePath(); ctx.fill();
+      } else if (u.state === 'mining' && !t) {
+        ctx.fillStyle = 'rgba(255,240,150,0.25)';
+        ctx.beginPath(); ctx.moveTo(x - 6, y + 6); ctx.lineTo(x + 6, y + 6); ctx.lineTo(x + 14, GROUND); ctx.lineTo(x - 14, GROUND); ctx.closePath(); ctx.fill();
+      }
+      ctx.fillStyle = you ? '#9be7ff' : '#ffb0d0'; ctx.beginPath(); ctx.ellipse(x, y - 4, 8, 8, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = body; ctx.beginPath(); ctx.arc(x, y - 5, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = you ? '#5a6b7d' : '#7d5a6b'; ctx.beginPath(); ctx.ellipse(x, y + 1, 18, 5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffe066'; for (let k = -1; k <= 1; k++) { ctx.beginPath(); ctx.arc(x + k * 8, y + 2, 1.6, 0, Math.PI * 2); ctx.fill(); }
+      if (u.carry) drawBlock(x - 4, y + 7, 8);
+      ctx.restore();
+    }
+  } else {
+    const walking = u.state !== 'mining' && !u.hitting && !(T.builder && Math.abs(u.x - u.station) < 1);
+    const y = u.y + (walking ? -Math.abs(bob(u, 3)) : 0);
+    const big = u.type === 'bigguy' ? 1.7 : u.type === 'sneaky' ? 0.8 : 1;
+    ctx.translate(x, y); ctx.scale(big * u.face, big);
+    // legs
+    ctx.strokeStyle = dark; ctx.lineWidth = 2;
+    const sw = walking ? Math.sin(now() * 14 + u.id) * 3 : 0;
+    ctx.beginPath(); ctx.moveTo(-2, -4); ctx.lineTo(-3 + sw, 0); ctx.moveTo(2, -4); ctx.lineTo(3 - sw, 0); ctx.stroke();
+    // body + head
+    ctx.fillStyle = u.type === 'sneaky' ? (you ? '#3c8a4a' : '#5a3a8a') : body;
+    ctx.beginPath(); ctx.ellipse(0, -8, 4.5, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, -17, 6, 5.5, 0, 0, Math.PI * 2); ctx.fill();
+    // eyes
+    ctx.fillStyle = '#111';
+    if (u.type === 'sneaky') { ctx.fillRect(-6, -19, 12, 3); ctx.fillStyle = '#fff'; ctx.fillRect(0, -18.5, 3, 1.5); ctx.fillRect(-3.5, -18.5, 2, 1.5); }
+    else { ctx.beginPath(); ctx.ellipse(2.5, -17.5, 1.8, 2.5, 0.3, 0, Math.PI * 2); ctx.ellipse(-1.5, -17.5, 1.5, 2.3, -0.3, 0, Math.PI * 2); ctx.fill(); }
+    // antenna or hat
+    if (T.builder) { ctx.fillStyle = '#ffd400'; ctx.beginPath(); ctx.ellipse(0, -21, 7, 4, 0, Math.PI, 0); ctx.fill(); ctx.fillRect(-8, -21.5, 16, 1.5); }
+    else if (u.type !== 'sneaky') { ctx.strokeStyle = dark; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(1, -27); ctx.stroke(); ctx.fillStyle = '#ffe066'; ctx.beginPath(); ctx.arc(1, -27, 1.5, 0, Math.PI * 2); ctx.fill(); }
+    // builder hammer swing / martian punch
+    if (T.builder && !walking) { ctx.save(); ctx.translate(5, -9); ctx.rotate(Math.sin(now() * 12 + u.id) * 0.8); ctx.fillStyle = '#8a5a1c'; ctx.fillRect(0, -1, 7, 2); ctx.fillStyle = '#999'; ctx.fillRect(6, -3, 3, 6); ctx.restore(); }
+    if (u.hitting) { ctx.fillStyle = body; ctx.beginPath(); ctx.arc(5 + Math.abs(Math.sin(now() * 16)) * 4, -9, 2, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    // carried stone
+    for (let k = 0; k < u.carry; k++) drawBlock(x - 4, y - big * 23 - 8 - k * 7, 8);
+  }
+  // health bar
+  if (u.hp < T.hp) {
+    const top = T.air ? u.y - 16 : u.y - (u.type === 'bigguy' ? 52 : 34);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(u.x - 10, top, 20, 3);
+    ctx.fillStyle = u.side.isYou ? '#7dff7a' : '#ff6b6b'; ctx.fillRect(u.x - 10, top, 20 * Math.max(0, u.hp / T.hp), 3);
   }
 }
 function drawHud() {
-  const m = Math.floor(S.time / 60), s = Math.floor(S.time % 60);
-  rr(W / 2 - 45, 10, 90, 36, 12); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
-  text(m + ':' + String(s).padStart(2, '0'), W / 2, 29, 22, S.time < 20 ? '#ff6b6b' : '#fff');
-  text('🧱 ' + S.bot.stash, W - 20, 29, 14, '#ffb0d0', 'right');
+  const m = Math.floor(S.time / 60), sec = Math.floor(S.time % 60);
+  rr(W / 2 - 42, 8, 84, 30, 10); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
+  text(m + ':' + String(sec).padStart(2, '0'), W / 2, 24, 20, S.time < 20 ? '#ff6b6b' : '#fff');
+  text('YOU ▲' + height(S.you), 16, 22, 18, '#7dff7a', 'left');
+  text('▲' + height(S.bot) + ' BOT', W - 16, 22, 18, '#d6a6ff', 'right');
+  text('🔮 ' + S.bot.mana, W - 16, 44, 11, '#d6a6ff', 'right', false);
 
-  const me = S.you;
-  text('🧱 x ' + me.stash, 20, 592, 20, '#fff', 'left');
-  for (let k = 0; k < ENERGY_MAX; k++) {
-    rr(170 + k * 21.5, 582, 18, 20, 4);
-    ctx.fillStyle = k < me.energy ? '#5ef0ff' : 'rgba(0,0,0,0.25)'; ctx.fill();
+  // bottom bar
+  ctx.fillStyle = '#2a1240'; ctx.fillRect(0, BAR_Y, W, H - BAR_Y);
+  const me = S.you, segW = (W - 70) / MANA_MAX;
+  text('🔮', 22, 333, 12, '#fff', 'center', false);
+  for (let k = 0; k < MANA_MAX; k++) {
+    rr(36 + k * segW, 329, segW - 3, 8, 3);
+    ctx.fillStyle = k < me.mana ? '#c77dff' : 'rgba(255,255,255,0.1)'; ctx.fill();
   }
-  text('⚡', 158, 592, 16, '#5ef0ff', 'center', false);
+  if (me.mana < MANA_MAX) { rr(36 + me.mana * segW, 329, (segW - 3) * (me.mTimer / MANA_RATE), 8, 3); ctx.fillStyle = 'rgba(199,125,255,0.4)'; ctx.fill(); }
+  text(me.mana + '/' + MANA_MAX, W - 18, 333, 10, '#c77dff', 'right', false);
 
-  drawButton(BTN.blast, me.blastMode ? 'TAP A TARGET' : 'BLAST', COST.blast, me.energy >= COST.blast, me.blastMode, '#ff7b3a');
-  drawButton(BTN.shield, shielded(me) ? 'SHIELDED' : 'SHIELD', COST.shield, me.energy >= COST.shield && !shielded(me), shielded(me), '#4fc3f7');
-  text('Tap a glowing enemy block to ABDUCT it (' + COST.abduct + '⚡)', W / 2, 688, 11, '#6b4a1f', 'center', false);
-}
-function drawButton(b, label, cost, ready, active, color) {
-  rr(b.x, b.y, b.w, b.h, 14);
-  ctx.fillStyle = active ? '#fff' : ready ? color : '#a08a6a'; ctx.fill();
-  ctx.lineWidth = 3; ctx.strokeStyle = '#2a1240'; ctx.stroke();
-  text(label, b.x + b.w / 2, b.y + 24, 18, active ? color : '#fff');
-  text(cost + '⚡', b.x + b.w / 2, b.y + 46, 12, active ? color : '#fff', 'center', false);
+  CARDS.forEach((c, k) => {
+    const r = cardRect(k), info = TYPES[c] || ABIL[c], ok = me.mana >= info.cost, armed = me.armed === c;
+    rr(r.x, r.y, r.w, r.h, 10);
+    ctx.fillStyle = armed ? '#fff' : ABIL[c] ? (ok ? '#ff7b3a' : '#5a3a4a') : (ok ? '#4a2f7a' : '#3a2a4a'); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = armed ? '#ffe066' : ok ? '#c77dff' : '#4a3a5a'; ctx.stroke();
+    ctx.globalAlpha = ok ? 1 : 0.45;
+    emoji(info.icon, r.x + r.w / 2, r.y + 18, 20);
+    text(info.name, r.x + r.w / 2, r.y + 37, 11, armed ? '#2a1240' : '#fff', 'center', false);
+    text(info.cost + '🔮', r.x + r.w / 2, r.y + 49, 10, armed ? '#2a1240' : '#e0b3ff', 'center', false);
+    ctx.globalAlpha = 1;
+  });
+  if (me.armed) text(me.armed === 'abduct' ? 'Tap an enemy troop or a glowing top block' : 'Tap where to blow up', W / 2, 56, 14, '#ffe066');
 }
 function drawFx() {
-  for (const z of S.zaps) {
-    ctx.strokeStyle = 'rgba(255,120,60,' + (1 - z.t / 0.25) + ')'; ctx.lineWidth = 5;
-    ctx.beginPath(); ctx.moveTo(z.x1, z.y1); ctx.lineTo(z.x2, z.y2); ctx.stroke();
+  for (const b of S.booms) {
+    ctx.globalAlpha = 1 - b.t / 0.4; ctx.fillStyle = '#ffdd55';
+    ctx.beginPath(); ctx.arc(b.x, b.y, 20 + b.t * 120, 0, Math.PI * 2); ctx.fill();
   }
-  for (const p of S.parts) {
-    ctx.globalAlpha = 1 - p.t / p.life; ctx.fillStyle = p.color; ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
-  }
+  for (const p of S.parts) { ctx.globalAlpha = 1 - p.t / p.life; ctx.fillStyle = p.color; ctx.fillRect(p.x - 2, p.y - 2, 4, 4); }
   ctx.globalAlpha = 1;
-  for (const t of S.texts) {
-    ctx.globalAlpha = 1 - t.t / 1.2; text(t.text, t.x, t.y - t.t * 30, 14, t.color);
-  }
+  for (const t of S.texts) { ctx.globalAlpha = 1 - t.t / 1.3; text(t.text, t.x, t.y - t.t * 25, t.size, t.color); }
   ctx.globalAlpha = 1;
 }
-function overlay(alpha = 0.55) { ctx.fillStyle = 'rgba(20,5,40,' + alpha + ')'; ctx.fillRect(0, 0, W, H); }
+function overlay(a = 0.6) { ctx.fillStyle = 'rgba(20,5,40,' + a + ')'; ctx.fillRect(0, 0, W, H); }
 
-function drawTitle(t) {
+function drawTitle() {
+  const t = titleT;
   drawBackground();
-  // a decorative pyramid
-  for (let r = 0; r < 6; r++) for (let i = 0; i < 6 - r; i++) drawBlock(W / 2 - (6 - r) * BS / 2 + i * BS, GROUND - (r + 1) * BS, r === 5);
-  const bob = Math.sin(t * 3) * 6;
-  ctx.font = '60px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🛸', W / 2, 330 + bob);
-  text('CONSPYRAMID', W / 2, 110, 44, '#ffe066');
-  text('aliens built them. now they fight over them.', W / 2, 150, 13, '#fff');
-  const lines = ['1. Tap quarry blocks to beam them up', '2. Tap the dotted spots to build your pyramid',
-                 '3. Tap glowing enemy blocks to abduct them', '4. BLAST and SHIELD cost energy',
-                 'Tallest pyramid after 2:30 wins!'];
-  lines.forEach((l, k) => text(l, W / 2, 190 + k * 24, 14, k === 4 ? '#7dff7a' : '#fff'));
-  if (Math.sin(t * 5) > -0.3) text('TAP TO START', W / 2, 640, 26, '#fff');
+  ctx.fillStyle = '#2a1240'; ctx.fillRect(0, BAR_Y, W, H - BAR_Y);
+  for (let r = 0; r < 7; r++) for (let i = 0; i < 7 - r; i++) drawBlock(92 - (7 - r) * 8 + i * 16, GROUND - (r + 1) * 16, 16, r === 6);
+  for (let r = 0; r < 5; r++) for (let i = 0; i < 5 - r; i++) drawBlock(W - 92 - (5 - r) * 8 + i * 16, GROUND - (r + 1) * 16);
+  emoji('🛸', W / 2 + Math.sin(t) * 120, 250 + Math.sin(t * 3) * 6, 34);
+  text('CONSPYRAMID', W / 2, 70, 52, '#ffe066');
+  text('aliens built them. now they fight over them.', W / 2, 108, 15, '#fff');
+  const lines = ['Spend 🔮 mana to send troops. They fetch stone and your pyramid builds itself.',
+                 '👽 Martians fight  🥷 Sneakies slip past  🦍 Big Guys haul lots  🚀 Battleships hunt',
+                 '🔨 Builders build faster  🛸 Your Saucer casts 🌀 Abduct and 💥 Explode',
+                 'Tallest pyramid after 2:30 wins, or finish your pyramid first!'];
+  lines.forEach((l, k) => text(l, W / 2, 145 + k * 24, 13, k === 3 ? '#7dff7a' : '#fff'));
+  if (Math.sin(t * 5) > -0.3) text('TAP TO START', W / 2, 362, 24, '#fff');
 }
 function drawOver() {
   overlay(0.6);
   const msg = { win: 'YOU WIN!', lose: 'YOU LOSE!', draw: 'DRAW!' }[S.result];
   const col = { win: '#7dff7a', lose: '#ff6b6b', draw: '#ffe066' }[S.result];
-  text(msg, W / 2, 230, 50, col);
-  text('You ▲' + height(S.you) + ' (' + blockCount(S.you) + ' blocks)', W / 2, 290, 20, '#fff');
-  text('Bot ▲' + height(S.bot) + ' (' + blockCount(S.bot) + ' blocks)', W / 2, 320, 20, '#fff');
-  if (S.result === 'win') text('+10 crystals (coming soon)', W / 2, 360, 14, '#c9a0ff');
-  if (S.t - S.overAt > 0.8) text('TAP TO PLAY AGAIN', W / 2, 430, 22, '#fff');
+  text(S.reason, W / 2, 95, 18, '#fff');
+  text(msg, W / 2, 140, 52, col);
+  text('You ▲' + height(S.you) + ' (' + blockCount(S.you) + ' blocks)     Bot ▲' + height(S.bot) + ' (' + blockCount(S.bot) + ' blocks)', W / 2, 195, 18, '#fff');
+  if (S.result === 'win') text('+10 crystals (coming soon)', W / 2, 225, 13, '#c9a0ff');
+  if (S.t - S.overAt > 0.8) text('TAP TO PLAY AGAIN', W / 2, 270, 22, '#fff');
 }
 
 let titleT = 0;
 function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#1a0b33'; ctx.fillRect(0, 0, innerWidth, innerHeight);
+  if (innerHeight > innerWidth) {   // portrait: nudge the player to rotate
+    ctx.font = 'bold 18px ' + FONT; ctx.fillStyle = '#ffe066'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('↻ Turn your phone sideways', innerWidth / 2, Math.max(30, offY / 2));
+  }
   ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, dpr * offY);
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
-  if (mode === 'title') { drawTitle(titleT); ctx.restore(); return; }
+  if (mode === 'title') { drawTitle(); ctx.restore(); return; }
   drawBackground();
   drawQuarry();
-  drawPyramid(S.you, true);
-  drawPyramid(S.bot, false);
-  drawUfo(S.bot, false);
-  drawUfo(S.you, true);
+  drawPyramid(S.you); drawPyramid(S.bot);
+  const all = [...S.you.units, ...S.bot.units];
+  all.filter(u => u.T.ground).sort((a, b) => a.y - b.y).forEach(drawUnit);
+  all.filter(u => u.T.air).forEach(drawUnit);
   drawFx();
   drawHud();
   if (mode === 'over') drawOver();
@@ -448,11 +574,10 @@ function draw() {
 
 // ---------- Main loop ----------
 let last = performance.now();
-function frame(now) {
-  // Run the sim in small steps so slow phones keep real-time speed.
-  let dt = Math.min(0.5, (now - last) / 1000); last = now;
+function frame(t) {
+  let dt = Math.min(0.5, (t - last) / 1000); last = t;
   titleT += dt;
-  while (dt > 0) {
+  while (dt > 0) {   // small fixed steps keep slow phones at real-time speed
     const step = Math.min(0.05, dt); dt -= step;
     if (S) { update(step); if (mode === 'over') updateFx(step); }
   }
