@@ -43,7 +43,7 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 | 🦍 **Big Guy** | Very slow | Lots (around 5) | No | Brings back a pile of stone, but enemies can beat him up and **take his stone**. Needs escorts. |
 | 🚀 **Battleship** (flying) | Medium | Nothing | Yes, only fights | Flies over the field and shoots enemy troops. Doesn't gather. |
 | 🛸 **Saucer** (special UFO pilot) | Fast, flying | 1–2 stone | No | Flies around collecting stone. It's the ship that casts **special abilities**. You start with one. |
-| 💣 **Mega Ship** (once per match, 10 mana) | Fast, flying | Nothing | Bombs only | Flies to the middle, drops a big bomb on the enemy front line, flies home, repeats. Only Battleships and Big Guys can hurt it. Two Mega Ships crash and destroy each other. |
+| 💣 **Mega Ship** (10 mana, buy as many as you can afford) | Fast, flying | Nothing | Bombs only | Flies to the middle, drops a big bomb on the enemy front line, flies home, repeats. Nothing can hurt it except an enemy Mega Ship: two Mega Ships crash and destroy each other. |
 | 🔨 **Builder** | Slow | Nothing | No | Stays at your pyramid and makes it build faster. |
 
 ### Combat rules
@@ -72,6 +72,11 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 - **Capstone race:** finishing a full peak gives a big bonus.
 
 ---
+
+## 🎬 Screens
+- **Intro** (first launch, skippable, replayable from home): "You are an alien commander. Your goal: confuse future historians by building massive structures in the desert..."
+- **Home screen:** Battle button, how-to-play, watch intro, win/loss record.
+- **After a battle:** cut to "Thousands of years later..." — present day, both pyramids as built, height signs, and tourists flocking to the taller one. Then YOU WIN / YOU LOSE, with Home and Battle again buttons.
 
 ## 🏠 Home base (safe zone)
 - Your own plot of desert or planet. Build **one or many pyramids** at your own pace.

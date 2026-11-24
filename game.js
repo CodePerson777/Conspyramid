@@ -20,9 +20,9 @@ const FONT = '"Comic Sans MS", "Chalkboard SE", "Comic Neue", sans-serif';
 const TYPES = {
   martian:    { name: 'Martian',    icon: '👽', cost: 3, hp: 15, speed: 45, carry: 1, mine: 0.9, dmg: 8, rate: 0.9, range: 60, ground: true, gather: true, fights: true, retreat: 0.5 },
   sneaky:     { name: 'Sneaky',     icon: '🥷', cost: 2, hp: 8, speed: 80, carry: 1, mine: 0.7, dmg: 5, rate: 1.0, range: 45, ground: true, gather: true, sneaky: true, retreat: 0.5 },
-  bigguy:     { name: 'Big Guy',    icon: '🦍', cost: 4, hp: 35, speed: 20, carry: 5, mine: 0.6, dmg: 14, rate: 1.6, range: 45, airRange: 220, ground: true, gather: true, retreat: 0.3 },
+  bigguy:     { name: 'Big Guy',    icon: '🦍', cost: 4, hp: 35, speed: 20, carry: 5, mine: 0.6, dmg: 14, rate: 1.6, range: 45, ground: true, gather: true, retreat: 0.3 },
   battleship: { name: 'Battleship', icon: '🚀', cost: 5, hp: 25, speed: 55, dmg: 12, rate: 0.8, range: 100, air: true, fights: true, bomb: true, retreat: 0.4 },
-  mega:       { name: 'Mega Ship',  icon: '💣', cost: 10, hp: 60, speed: 110, air: true, mega: true, once: true },
+  mega:       { name: 'Mega Ship',  icon: '💣', cost: 10, hp: 60, speed: 110, air: true, mega: true },
   builder:    { name: 'Builder',    icon: '🔨', cost: 3, hp: 10, speed: 35, ground: true, builder: true },
   saucer:     { name: 'Saucer',     icon: '🛸', cost: 5, hp: 18, speed: 75, carry: 2, mine: 0.6, air: true, gather: true, saucer: true, retreat: 0.4 },
 };
@@ -70,7 +70,7 @@ function height(s) { let h = 0; forSlots((r, i) => { if (s.grid[r][i]) h = Math.
 function blockCount(s) { let n = 0; forSlots((r, i) => { n += s.grid[r][i]; }); return n; }
 
 // ---------- State ----------
-let mode = 'title';   // title | play | over
+let mode = 'home';    // intro | home | play | cutscene  (screens.js picks the first one)
 let S = null, nextId = 1;
 function makeSide(isYou) {
   const dir = isYou ? 1 : -1, cx = isYou ? 92 : W - 92;
@@ -107,11 +107,9 @@ function spawn(s, type) {
 }
 function deploy(s, type) {
   const T = TYPES[type];
-  if (T.once && s.megaBought) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Only one per match!', '#f88'); return false; }
-  if (!T.once && s.units.length >= UNIT_CAP) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Too many troops!', '#f88'); return false; }
+  if (s.units.length >= UNIT_CAP) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Too many troops!', '#f88'); return false; }
   if (s.mana < T.cost) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Need ' + T.cost + ' mana', '#f88'); return false; }
   s.mana -= T.cost; spawn(s, type);
-  if (T.once) s.megaBought = true;
   return true;
 }
 function moveTo(u, tx, ty, dt, spd) {
@@ -140,14 +138,11 @@ function kill(u, dropStone = true) {
 function canSee(u, e) {
   if (e.hp <= 0) return false;
   if (u.T.sneaky || e.T.sneaky) return !!(u.T.sneaky && e.T.sneaky);  // Sneakies only fight Sneakies
-  if (e.T.mega) return u.type === 'battleship' || u.type === 'bigguy'; // only these can hurt a Mega Ship
+  if (e.T.mega) return false;                                          // only another Mega Ship can stop one
   if (u.T.air) return true;                                            // battleships hit anything else
   return !!e.T.ground;
 }
-function inRange(u, e) {
-  const d = Math.hypot(e.x - u.x, e.y - u.y);
-  return d <= (e.T.mega && u.T.airRange ? u.T.airRange : u.T.range);
-}
+function inRange(u, e) { return Math.hypot(e.x - u.x, e.y - u.y) <= u.T.range; }
 function tryShoot(u, dt) {
   const T = u.T; if (!T.dmg) return false;
   const foe = nearestEnemy(u, 9999, e => canSee(u, e) && inRange(u, e));
@@ -294,7 +289,7 @@ function boom(s, x, y) {
   const e = s.enemy, R = 60;
   S.booms.push({ x, y, t: 0 });
   puff(x, y, '#ff7b3a', 24, 160); puff(x, y, '#ffe066', 12, 120);
-  for (const v of e.units) if (Math.hypot(v.x - x, v.y - y) < R) { v.hp -= 45; if (v.hp <= 0) kill(v); }
+  for (const v of e.units) if (!v.T.mega && Math.hypot(v.x - x, v.y - y) < R) { v.hp -= 45; if (v.hp <= 0) kill(v); }
   const hits = listSlots(e, isExposed).filter(([r, i]) => { const c = slotCenter(e, r, i); return Math.hypot(c.x - x, c.y - y) < R; })
     .sort((a, b) => b[0] - a[0]).slice(0, 3);
   for (const [r, i] of hits) e.grid[r][i] = 0;
@@ -347,7 +342,8 @@ function botThink() {
     if (top && top[0] >= 2) { const c = slotCenter(y, ...top); cast(b, 'abduct', c.x, c.y); return; }
   }
   // Mega Ship: counter the player's, or sometimes buy one mid-match
-  if (!b.megaBought && (y.units.some(u => u.T.mega) || (S.t > 40 && Math.random() < 0.05))) b.savingForMega = true;
+  const megas = side => side.units.filter(u => u.T.mega).length;
+  if (megas(y) > megas(b) || (S.t > 40 && megas(b) === 0 && Math.random() < 0.05)) b.savingForMega = true;
   if (b.savingForMega) {
     if (b.mana >= TYPES.mega.cost) { deploy(b, 'mega'); b.savingForMega = false; }
     return;   // save mana until it can afford one
@@ -421,11 +417,13 @@ function updateFx(dt) {
   S.booms = S.booms.filter(b => b.t < 0.4);
 }
 function endMatch(capper) {
-  mode = 'over'; S.overAt = S.t;
-  if (capper) { S.result = capper.isYou ? 'win' : 'lose'; S.reason = 'Pyramid completed!'; return; }
-  const hy = height(S.you), hb = height(S.bot), cy = blockCount(S.you), cb = blockCount(S.bot);
-  S.result = hy !== hb ? (hy > hb ? 'win' : 'lose') : cy !== cb ? (cy > cb ? 'win' : 'lose') : 'draw';
-  S.reason = 'Time up!';
+  if (capper) { S.result = capper.isYou ? 'win' : 'lose'; S.reason = 'Pyramid completed!'; }
+  else {
+    const hy = height(S.you), hb = height(S.bot), cy = blockCount(S.you), cb = blockCount(S.bot);
+    S.result = hy !== hb ? (hy > hb ? 'win' : 'lose') : cy !== cb ? (cy > cb ? 'win' : 'lose') : 'draw';
+    S.reason = 'Time up!';
+  }
+  startCutscene();   // screens.js
 }
 
 // ---------- Input ----------
@@ -436,9 +434,10 @@ function inRect(x, y, r) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <=
 canvas.addEventListener('pointerdown', e => {
   e.preventDefault();
   const x = (e.clientX - offX) / scale, y = (e.clientY - offY) / scale;
-  if (mode === 'title') { newGame(); return; }
-  if (mode === 'over') { if (S.t - S.overAt > 0.8) newGame(); return; }
-  tap(x, y);
+  if (mode === 'intro') introTap(x, y);
+  else if (mode === 'home') homeTap(x, y);
+  else if (mode === 'cutscene') cutsceneTap(x, y);
+  else tap(x, y);
 });
 function tap(x, y) {
   const me = S.you;
@@ -465,7 +464,7 @@ function text(str, x, y, size, color, align = 'center', stroke = true) {
 }
 function emoji(ch, x, y, size) { ctx.font = size + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ch, x, y); }
 const STARS = Array.from({ length: 60 }, () => [Math.random() * W, Math.random() * 200, rand(0.5, 2)]);
-const now = () => (S ? S.t : titleT);
+const now = () => (mode === 'play' && S ? S.t : titleT);
 
 function drawBackground() {
   const g = ctx.createLinearGradient(0, 0, 0, GROUND);
@@ -609,15 +608,14 @@ function drawHud() {
   text(me.mana + '/' + MANA_MAX, W - 18, 333, 10, '#c77dff', 'right', false);
 
   CARDS.forEach((c, k) => {
-    const r = cardRect(k), info = TYPES[c] || ABIL[c], used = info.once && me.megaBought;
-    const ok = me.mana >= info.cost && !used, armed = me.armed === c;
+    const r = cardRect(k), info = TYPES[c] || ABIL[c], ok = me.mana >= info.cost, armed = me.armed === c;
     rr(r.x, r.y, r.w, r.h, 10);
     ctx.fillStyle = armed ? '#fff' : ABIL[c] ? (ok ? '#ff7b3a' : '#5a3a4a') : (ok ? '#4a2f7a' : '#3a2a4a'); ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = armed ? '#ffe066' : ok ? '#c77dff' : '#4a3a5a'; ctx.stroke();
     ctx.globalAlpha = ok ? 1 : 0.45;
     emoji(info.icon, r.x + r.w / 2, r.y + 18, 20);
     text(info.name, r.x + r.w / 2, r.y + 37, 11, armed ? '#2a1240' : '#fff', 'center', false);
-    text(used ? 'USED' : info.cost + '🔮' + (info.once ? ' once' : ''), r.x + r.w / 2, r.y + 49, 10, armed ? '#2a1240' : '#e0b3ff', 'center', false);
+    text(info.cost + '🔮', r.x + r.w / 2, r.y + 49, 10, armed ? '#2a1240' : '#e0b3ff', 'center', false);
     ctx.globalAlpha = 1;
   });
   if (me.armed) text(me.armed === 'abduct' ? 'Tap an enemy troop or a glowing top block' : 'Tap where to blow up', W / 2, 56, 14, '#ffe066');
@@ -652,33 +650,6 @@ function drawFx() {
 }
 function overlay(a = 0.6) { ctx.fillStyle = 'rgba(20,5,40,' + a + ')'; ctx.fillRect(0, 0, W, H); }
 
-function drawTitle() {
-  const t = titleT;
-  drawBackground();
-  ctx.fillStyle = '#2a1240'; ctx.fillRect(0, BAR_Y, W, H - BAR_Y);
-  for (let r = 0; r < 7; r++) for (let i = 0; i < 7 - r; i++) drawBlock(92 - (7 - r) * 8 + i * 16, GROUND - (r + 1) * 16, 16, r === 6);
-  for (let r = 0; r < 5; r++) for (let i = 0; i < 5 - r; i++) drawBlock(W - 92 - (5 - r) * 8 + i * 16, GROUND - (r + 1) * 16);
-  emoji('🛸', W / 2 + Math.sin(t) * 120, 250 + Math.sin(t * 3) * 6, 34);
-  text('CONSPYRAMID', W / 2, 70, 52, '#ffe066');
-  text('aliens built them. now they fight over them.', W / 2, 108, 15, '#fff');
-  const lines = ['Spend 🔮 mana to send troops. They fetch stone and your pyramid builds itself.',
-                 '👽 Martians fight  🥷 Sneakies only fight Sneakies  🦍 Big Guys haul lots  🚀 Battleships bomb',
-                 '🔨 Builders build faster  🛸 Saucer casts 🌀 Abduct + 💥 Explode  💣 Mega Ship (once per match)',
-                 'Tallest pyramid after 2:30 wins, or finish your pyramid first!'];
-  lines.forEach((l, k) => text(l, W / 2, 145 + k * 24, 13, k === 3 ? '#7dff7a' : '#fff'));
-  if (Math.sin(t * 5) > -0.3) text('TAP TO START', W / 2, 362, 24, '#fff');
-}
-function drawOver() {
-  overlay(0.6);
-  const msg = { win: 'YOU WIN!', lose: 'YOU LOSE!', draw: 'DRAW!' }[S.result];
-  const col = { win: '#7dff7a', lose: '#ff6b6b', draw: '#ffe066' }[S.result];
-  text(S.reason, W / 2, 95, 18, '#fff');
-  text(msg, W / 2, 140, 52, col);
-  text('You ▲' + height(S.you) + ' (' + blockCount(S.you) + ' blocks)     Bot ▲' + height(S.bot) + ' (' + blockCount(S.bot) + ' blocks)', W / 2, 195, 18, '#fff');
-  if (S.result === 'win') text('+10 crystals (coming soon)', W / 2, 225, 13, '#c9a0ff');
-  if (S.t - S.overAt > 0.8) text('TAP TO PLAY AGAIN', W / 2, 270, 22, '#fff');
-}
-
 let titleT = 0;
 function draw() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -689,7 +660,7 @@ function draw() {
   }
   ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, dpr * offY);
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
-  if (mode === 'title') { drawTitle(); ctx.restore(); return; }
+  if (mode !== 'play') { drawScreen(); ctx.restore(); return; }   // screens.js
   drawBackground();
   drawQuarry();
   drawPyramid(S.you); drawPyramid(S.bot);
@@ -698,7 +669,6 @@ function draw() {
   all.filter(u => u.T.air).forEach(drawUnit);
   drawFx();
   drawHud();
-  if (mode === 'over') drawOver();
   ctx.restore();
 }
 
@@ -709,7 +679,8 @@ function frame(t) {
   titleT += dt;
   while (dt > 0) {   // small fixed steps keep slow phones at real-time speed
     const step = Math.min(0.05, dt); dt -= step;
-    if (S) { update(step); if (mode === 'over') updateFx(step); }
+    if (S && mode === 'play') update(step);
+    updateScreens(step);
   }
   draw();
   requestAnimationFrame(frame);
