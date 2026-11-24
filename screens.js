@@ -138,7 +138,7 @@ function drawHelp() {
   const lines = [
     'Spend 🔮 mana on troops. They fetch stone and your pyramid builds itself.',
     '👽 Martian: grabs stone and shoots enemies',
-    '🥷 Sneaky: only fights other Sneakies    🦍 Big Guy: carries 5 stone',
+    '🥷 Sneaky: waits at home for stone in the middle    🦍 Big Guy: carries 5 stone',
     '🚀 Battleship: bombs troops    🔨 Builder: builds faster',
     '🛸 Saucer: casts 🌀 Abduct and 💥 Explode',
     '💣 Mega Ship: drops 3 big bombs on their front line. Only another Mega Ship can stop it',

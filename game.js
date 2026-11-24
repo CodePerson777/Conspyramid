@@ -101,7 +101,7 @@ function spawn(s, type) {
   if (T.air) { u.x = s.cx; u.y = rand(60, 120); }
   else { u.x = s.home; u.y = GROUND + rand(-6, 10); }
   u.qx = QX - s.dir * rand(0, 28);
-  if (T.builder) u.station = Math.min(W - 10, Math.max(10, s.cx - s.dir * (BASE * BS / 2 + rand(2, 14))));
+  if (T.builder) u.bf = Math.random();   // where along the top of the pyramid this builder stands
   s.units.push(u);
   return u;
 }
@@ -187,6 +187,16 @@ function updateGatherer(u, dt) {
     S.loose = S.loose.filter(l => l.n > 0);
   }
   const homeY = T.air ? 170 : u.y, qy = T.air ? 235 : u.y;
+  if (T.sneaky && S.quarry <= 0 && u.state !== 'toHome') {
+    if (u.carry > 0) { u.state = 'toHome'; return; }
+    u.state = 'toQuarry';
+    if (tryShoot(u, dt)) return;   // still fights enemy Sneakies that come close
+    if (u.hangX == null || (Math.abs(u.x - u.hangX) < 1 && Math.random() < dt * 0.4))
+      u.hangX = s.cx + s.dir * rand(BASE * BS / 2 - 10, BASE * BS / 2 + 60);
+    moveTo(u, u.hangX, u.y, dt, T.speed * 0.5);
+    return;
+  }
+  u.hangX = null;
   if (u.state === 'toQuarry') {
     if (moveTo(u, u.qx, qy, dt)) { u.state = 'mining'; u.mineT = 0; u.waitT = 0; }
   } else if (u.state === 'mining') {
@@ -255,7 +265,7 @@ function updateBigBombs(dt) {
     S.booms.push({ x: b.x, y: GROUND - 6, t: 0, mega: true });
     puff(b.x, GROUND - 6, '#ff7b3a', 34, 200); puff(b.x, GROUND - 6, '#ffe066', 18, 140);
     for (const v of b.side.enemy.units) {
-      if (v.T.ground && !v.T.sneaky && Math.abs(v.x - b.x) < MEGA_BOMB_RADIUS) { v.hp -= MEGA_BOMB_DMG; v.flash = 0.2; if (v.hp <= 0) kill(v); }
+      if (v.T.ground && Math.abs(v.x - b.x) < MEGA_BOMB_RADIUS) { v.hp -= MEGA_BOMB_DMG; v.flash = 0.2; if (v.hp <= 0) kill(v); }
     }
   }
   S.bigBombs = S.bigBombs.filter(b => !b.done);
@@ -286,7 +296,25 @@ function updateSaucer(u, dt) {
   }
   u.task = null;
 }
-function updateBuilder(u, dt) { moveTo(u, u.station, u.y, dt); }
+// Top of the pyramid at x (where a builder's feet go). Ground if there's no block there.
+function surfaceY(s, x) {
+  let y = GROUND;
+  forSlots((r, i) => { if (s.grid[r][i]) { const q = slotRect(s, r, i); if (x >= q.x && x < q.x + q.w) y = Math.min(y, q.y); } });
+  return y;
+}
+// Builders stand scattered across the top two rows, climbing as the pyramid grows.
+function builderSpot(u) {
+  const s = u.side, row = Math.max(0, height(s) - 2);
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < BASE - row; i++) if (s.grid[row][i]) { const q = slotRect(s, row, i); lo = Math.min(lo, q.x + 3); hi = Math.max(hi, q.x + q.w - 3); }
+  if (lo > hi) { lo = s.cx - BASE * BS / 2 + 6; hi = s.cx + BASE * BS / 2 - 6; }
+  const x = lo + u.bf * (hi - lo);
+  return { x, y: surfaceY(s, x) };
+}
+function updateBuilder(u, dt) {
+  const p = builderSpot(u);
+  u.atSpot = moveTo(u, p.x, p.y, dt, Math.abs(p.y - u.y) > 2 ? u.T.speed * 1.5 : u.T.speed);
+}
 
 function boom(s, x, y) {
   const e = s.enemy, R = 60;
@@ -549,7 +577,7 @@ function drawUnit(u) {
       ctx.restore();
     }
   } else {
-    const walking = u.state !== 'mining' && u.state !== 'healing' && !u.aiming && !(T.builder && Math.abs(u.x - u.station) < 1);
+    const walking = u.state !== 'mining' && u.state !== 'healing' && !u.aiming && !(T.builder && u.atSpot);
     const y = u.y + (walking ? -Math.abs(bob(u, 3)) : 0);
     const big = u.type === 'bigguy' ? 1.7 : u.type === 'sneaky' ? 0.8 : 1;
     if (u.type === 'sneaky') ctx.globalAlpha = 0.6;   // ghostly: only other Sneakies can touch them
