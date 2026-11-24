@@ -139,8 +139,8 @@ function drawHelp() {
     'Spend 🔮 mana on troops. Kills earn mana; falling behind fills mana faster.',
     '👽 Martian: grabs stone and shoots enemies',
     '🥷 Sneaky: waits at home for stone in the middle    🦍 Big Guy: carries 5 stone',
-    '🚀 Battleship: bombs troops    🔨 Builder: builds faster',
-    '🛸 Saucer: casts 🌀 Abduct and 💥 Explode',
+    '🚀 Battleship: bombs troops    🔨 Builder: builds faster    🛸 Saucer (max 1): 🌀 Abduct, 💥 Explode',
+    'You can only hold 5 stone. Extra gets sacrificed to the gods!',
     '💣 Mega Ship: drops 2 big bombs on their front line. Only another Mega Ship can stop it',
     'Tallest pyramid after 2:30 wins, or finish yours first!',
   ];

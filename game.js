@@ -12,6 +12,7 @@ const QX = 400;                     // quarry center x
 const MATCH_TIME = 150;
 const MANA_MAX = 10, MANA_RATE = 3.0, START_MANA = 5;   // +1 mana every 3s
 const QUARRY_MAX = 12, QUARRY_START = 4, QUARRY_REGEN = 1.2;   // +1 quarry stone every 1.2s (shared by both sides)
+const STONE_MAX = 5;                // stone you can hold at home; extra is sacrificed to the gods
 const KILL_MANA = 1;                // mana you earn for each enemy troop you kill
 const CATCHUP_PER_BLOCK = 0.05, CATCHUP_MAX = 0.6;   // side with fewer blocks gets +5% mana speed per block behind (max +60%)
 const UNIT_CAP = 8;                 // per side
@@ -33,7 +34,7 @@ const ABIL = {
   abduct:  { name: 'Abduct',  icon: '🌀', cost: 4 },
   explode: { name: 'Explode', icon: '💥', cost: 6 },
 };
-const CARDS = ['martian', 'sneaky', 'bigguy', 'battleship', 'mega', 'builder', 'saucer', 'abduct', 'explode'];
+const CARDS = ['martian', 'sneaky', 'bigguy', 'battleship', 'mega', 'builder', 'saucer', 'abduct', 'explode'];   // max 1 Saucer at a time
 
 // ---------- Canvas ----------
 const canvas = document.getElementById('c');
@@ -81,7 +82,7 @@ function makeSide(isYou) {
            grid, stock: 0, mana: START_MANA, mTimer: 0, buildT: 0, units: [], armed: null };
 }
 function newGame() {
-  S = { t: 0, time: MATCH_TIME, quarry: QUARRY_START, qTimer: 0, loose: [], parts: [], texts: [], zaps: [],
+  S = { t: 0, time: MATCH_TIME, quarry: QUARRY_START, qTimer: 0, loose: [], parts: [], sacs: [], texts: [], zaps: [],
         booms: [], shots: [], bigBombs: [], botT: 2, you: makeSide(true), bot: makeSide(false) };
   S.you.enemy = S.bot; S.bot.enemy = S.you;
   for (const s of [S.you, S.bot]) { spawn(s, 'saucer'); spawn(s, 'martian'); }
@@ -107,8 +108,10 @@ function spawn(s, type) {
   s.units.push(u);
   return u;
 }
+const hasSaucer = s => s.units.some(u => u.T.saucer && u.hp > 0);
 function deploy(s, type) {
   const T = TYPES[type];
+  if (T.saucer && hasSaucer(s)) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Only 1 Saucer at a time!', '#f88'); return false; }
   if (s.units.length >= UNIT_CAP) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Too many troops!', '#f88'); return false; }
   if (s.mana < T.cost) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Need ' + T.cost + ' mana', '#f88'); return false; }
   s.mana -= T.cost; spawn(s, type);
@@ -213,7 +216,7 @@ function updateGatherer(u, dt) {
     if (u.carry >= T.carry || (u.carry > 0 && u.waitT > 3)) u.state = 'toHome';
   } else if (u.state === 'toHome') {
     if (moveTo(u, s.home, homeY, dt)) {
-      if (u.carry) { s.stock += u.carry; if (s.isYou) say(s.home, u.y - 30, '+' + u.carry + ' stone', '#ffd27a'); }
+      if (u.carry) addStone(s, u.carry, s.home, u.y);
       u.carry = 0; u.state = 'toQuarry'; u.qx = QX - s.dir * rand(0, 28);
     }
   }
@@ -228,7 +231,7 @@ function updateRetreat(u, dt) {
   }
   if (u.state === 'retreat') {
     if (moveTo(u, T.air ? s.cx : s.home, T.air ? 150 : u.y, dt, T.speed * 1.4)) {
-      if (u.carry) { s.stock += u.carry; if (s.isYou) say(s.home, u.y - 30, '+' + u.carry + ' stone', '#ffd27a'); }
+      if (u.carry) addStone(s, u.carry, s.home, u.y);
       u.carry = 0; u.retreated = true; u.state = 'toQuarry'; u.qx = QX - s.dir * rand(0, 28);
     }
     return true;
@@ -292,12 +295,12 @@ function updateSaucer(u, dt) {
   t.beaming = true; t.bt = (t.bt || 0) + dt;
   if (t.bt < 0.8) return;
   if (t.kind === 'abductUnit') {
-    const v = t.target; s.stock += v.carry; v.carry = 0;
+    const v = t.target; if (v.carry) addStone(s, v.carry, s.home, GROUND); v.carry = 0;
     say(v.x, v.y - 30, 'ABDUCTED!', '#7dff7a');
     puff(v.x, v.y - 10, '#7dff7a', 10, 60); v.hp = 0;
   } else {
     const c = slotCenter(e, t.r, t.i);
-    if (isExposed(e, t.r, t.i)) { e.grid[t.r][t.i] = 0; s.stock++; say(c.x, c.y - 20, 'STOLEN!', '#7dff7a'); puff(c.x, c.y, '#7dff7a', 8, 50); }
+    if (isExposed(e, t.r, t.i)) { e.grid[t.r][t.i] = 0; addStone(s, 1, s.home, GROUND, true); say(c.x, c.y - 20, 'STOLEN!', '#7dff7a'); puff(c.x, c.y, '#7dff7a', 8, 50); }
   }
   u.task = null;
 }
@@ -315,6 +318,15 @@ function builderSpot(u) {
   if (lo > hi) { lo = s.cx - BASE * BS / 2 + 6; hi = s.cx + BASE * BS / 2 - 6; }
   const x = lo + u.bf * (hi - lo);
   return { x, y: surfaceY(s, x) };
+}
+// Bring stone home. You can only hold STONE_MAX; anything extra gets hurled into the sky for the gods.
+function addStone(s, n, x, y, quiet) {
+  const keep = Math.max(0, Math.min(n, STONE_MAX - s.stock)), extra = n - keep;
+  s.stock += keep;
+  if (keep && s.isYou && !quiet) say(x, y - 30, '+' + keep + ' stone', '#ffd27a');
+  for (let k = 0; k < extra; k++)
+    S.sacs.push({ x: x + rand(-6, 6), y: GROUND - 10, vx: rand(-25, 25), vy: rand(-330, -280), rot: 0, spin: rand(-8, 8), t: 0, delay: k * 0.12 });
+  if (extra) say(x, y - (keep ? 46 : 30), extra > 1 ? 'Sacrificed ' + extra + ' to the gods!' : 'Sacrificed to the gods!', '#ffe9a8', 11);
 }
 function updateBuilder(u, dt) {
   const p = builderSpot(u);
@@ -365,13 +377,13 @@ function cast(s, kind, x, y) {   // returns true if cast
 function botThink() {
   const b = S.bot, y = S.you;
   const count = (s, t) => s.units.filter(u => u.type === t).length;
-  const hasSaucer = count(b, 'saucer') > 0;
+  const gotSaucer = hasSaucer(b);
   // Abilities
-  if (!b.savingForMega && hasSaucer && b.mana >= ABIL.explode.cost && Math.random() < 0.5) {
+  if (!b.savingForMega && gotSaucer && b.mana >= ABIL.explode.cost && Math.random() < 0.5) {
     const c = y.units.find(u => y.units.filter(v => Math.hypot(v.x - u.x, v.y - u.y) < 55).length >= 3);
     if (c) { cast(b, 'explode', c.x, c.y - 10); return; }
   }
-  if (!b.savingForMega && hasSaucer && b.mana >= ABIL.abduct.cost && Math.random() < 0.35) {
+  if (!b.savingForMega && gotSaucer && b.mana >= ABIL.abduct.cost && Math.random() < 0.35) {
     const big = y.units.find(u => u.carry >= 3);
     if (big) { cast(b, 'abduct', big.x, big.y - 10); return; }
     const top = listSlots(y, isExposed).sort((a, c) => c[0] - a[0])[0];
@@ -386,7 +398,7 @@ function botThink() {
   }
   // Deploy
   let want;
-  if (!hasSaucer) want = 'saucer';
+  if (!gotSaucer) want = 'saucer';
   else if (count(b, 'builder') < 1 && S.t > 8) want = 'builder';
   else if (count(y, 'martian') > count(b, 'martian') + 1) want = Math.random() < 0.5 ? 'battleship' : 'martian';
   else {
@@ -450,6 +462,12 @@ function update(dt) {
 function updateFx(dt) {
   for (const p of S.parts) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 200 * dt; }
   S.parts = S.parts.filter(p => p.t < p.life);
+  for (const c of S.sacs) {
+    if (c.delay > 0) { c.delay -= dt; continue; }
+    c.t += dt; c.x += c.vx * dt; c.y += c.vy * dt; c.vy -= 60 * dt; c.rot += c.spin * dt;
+    if (Math.random() < dt * 25) S.parts.push({ x: c.x, y: c.y, vx: rand(-20, 20), vy: rand(10, 40), life: 0.5, t: 0, color: '#ffe9a8' });
+  }
+  S.sacs = S.sacs.filter(c => c.y > -30);
   for (const t of S.texts) t.t += dt;
   S.texts = S.texts.filter(t => t.t < 1.3);
   for (const b of S.booms) b.t += dt;
@@ -648,7 +666,7 @@ function drawHud() {
   if (me.catchup > 0) text('⚡ catch-up +' + Math.round(me.catchup * 100) + '% mana', W / 2, 318, 11, '#ffe066', 'center');
 
   CARDS.forEach((c, k) => {
-    const r = cardRect(k), info = TYPES[c] || ABIL[c], ok = me.mana >= info.cost, armed = me.armed === c;
+    const r = cardRect(k), info = TYPES[c] || ABIL[c], ok = me.mana >= info.cost && !(c === 'saucer' && hasSaucer(me)), armed = me.armed === c;
     rr(r.x, r.y, r.w, r.h, 10);
     ctx.fillStyle = armed ? '#fff' : ABIL[c] ? (ok ? '#ff7b3a' : '#5a3a4a') : (ok ? '#4a2f7a' : '#3a2a4a'); ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = armed ? '#ffe066' : ok ? '#c77dff' : '#4a3a5a'; ctx.stroke();
@@ -661,6 +679,12 @@ function drawHud() {
   if (me.armed) text(me.armed === 'abduct' ? 'Tap an enemy troop or a glowing top block' : 'Tap where to blow up', W / 2, 56, 14, '#ffe066');
 }
 function drawFx() {
+  for (const c of S.sacs) {   // stone flying up to the gods, with a golden glow
+    if (c.delay > 0) continue;
+    ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.rot);
+    ctx.fillStyle = 'rgba(255,233,168,0.35)'; ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill();
+    drawBlock(-5, -5, 10); ctx.restore();
+  }
   for (const b of S.booms) {
     ctx.globalAlpha = 1 - b.t / 0.4; ctx.fillStyle = b.small ? '#ff9a3a' : '#ffdd55';
     ctx.beginPath(); ctx.arc(b.x, b.y, b.small ? 5 + b.t * 45 : b.mega ? 26 + b.t * 150 : 20 + b.t * 120, 0, Math.PI * 2); ctx.fill();

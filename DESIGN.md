@@ -42,13 +42,14 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 | 🥷 **Sneaky** | Fast | 1 stone | No | Slips past enemy aliens without being attacked. Weak if caught by a UFO or ability. |
 | 🦍 **Big Guy** | Very slow | Lots (around 5) | No | Brings back a pile of stone, but enemies can beat him up and **take his stone**. Needs escorts. |
 | 🚀 **Battleship** (flying) | Medium | Nothing | Yes, only fights | Flies over the field and shoots enemy troops. Doesn't gather. |
-| 🛸 **Saucer** (special UFO pilot) | Fast, flying | 1–2 stone | No | Flies around collecting stone. It's the ship that casts **special abilities**. You start with one. |
+| 🛸 **Saucer** (special UFO pilot) | Fast, flying | 1–2 stone | No | Flies around collecting stone. It's the ship that casts **special abilities**. You start with one, and you can only have **one at a time** (buy a new one if it's lost). |
 | 💣 **Mega Ship** (10 mana, buy as many as you can afford) | Fast, flying | Nothing | Bombs only | Flies to the middle and drops a big bomb on the enemy front line, 2 times, then flies away. Nothing can hurt it except an enemy Mega Ship: two Mega Ships crash and destroy each other. |
 | 🔨 **Builder** | Slow | Nothing | No | Climbs on top of your pyramid (higher as it grows) and makes it build faster. |
 
 ### Combat rules
 - Troops are fragile and shoot laser guns. Hurt troops retreat home **once** to drop off stone, then go back out **without healing**.
 - **Sneakies** only fight other Sneakies, and nobody else can touch them except a Mega Ship bomb. They only head out when there is stone in the middle; otherwise they hang around their pyramid.
+- **Stone limit:** you can only hold **5 stone** at home. Anything extra is sacrificed to the gods: it flies up into the sky and disappears.
 - When the quarry is empty, waiting troops fight at the middle line. Nobody crosses into the enemy half (except Saucers casting abilities).
 
 ### Rock-paper-scissors
