@@ -136,12 +136,12 @@ function drawHelp() {
   rr(60, 40, W - 120, 300, 18); ctx.fillStyle = '#3a1f63'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#c77dff'; ctx.stroke();
   text('HOW TO PLAY', W / 2, 74, 26, '#ffe066');
   const lines = [
-    'Spend 🔮 mana on troops. They fetch stone and your pyramid builds itself.',
+    'Spend 🔮 mana on troops. Kills earn mana; falling behind fills mana faster.',
     '👽 Martian: grabs stone and shoots enemies',
     '🥷 Sneaky: waits at home for stone in the middle    🦍 Big Guy: carries 5 stone',
     '🚀 Battleship: bombs troops    🔨 Builder: builds faster',
     '🛸 Saucer: casts 🌀 Abduct and 💥 Explode',
-    '💣 Mega Ship: drops 3 big bombs on their front line. Only another Mega Ship can stop it',
+    '💣 Mega Ship: drops 2 big bombs on their front line. Only another Mega Ship can stop it',
     'Tallest pyramid after 2:30 wins, or finish yours first!',
   ];
   lines.forEach((l, k) => text(l, W / 2, 112 + k * 28, 14, k === 6 ? '#7dff7a' : '#fff', 'center', false));

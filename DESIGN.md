@@ -33,7 +33,7 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 | Currency | How you get it | Spent on |
 |----------|----------------|----------|
 | 🧱 **Stone** | Troops carry it back from the quarry, or steal it | Building your pyramid (automatic) |
-| 🔮 **Mana** | Fills up slowly over time | Deploying troops and casting special abilities |
+| 🔮 **Mana** | Fills up over time, +1 per enemy troop killed, and faster for whoever is behind (+5% per block, max +60%) | Deploying troops and casting special abilities |
 
 ### Troops
 | Troop | Speed | Carries | Fights? | Role |
@@ -43,7 +43,7 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 | 🦍 **Big Guy** | Very slow | Lots (around 5) | No | Brings back a pile of stone, but enemies can beat him up and **take his stone**. Needs escorts. |
 | 🚀 **Battleship** (flying) | Medium | Nothing | Yes, only fights | Flies over the field and shoots enemy troops. Doesn't gather. |
 | 🛸 **Saucer** (special UFO pilot) | Fast, flying | 1–2 stone | No | Flies around collecting stone. It's the ship that casts **special abilities**. You start with one. |
-| 💣 **Mega Ship** (10 mana, buy as many as you can afford) | Fast, flying | Nothing | Bombs only | Flies to the middle and drops a big bomb on the enemy front line, 3 times, then flies away. Nothing can hurt it except an enemy Mega Ship: two Mega Ships crash and destroy each other. |
+| 💣 **Mega Ship** (10 mana, buy as many as you can afford) | Fast, flying | Nothing | Bombs only | Flies to the middle and drops a big bomb on the enemy front line, 2 times, then flies away. Nothing can hurt it except an enemy Mega Ship: two Mega Ships crash and destroy each other. |
 | 🔨 **Builder** | Slow | Nothing | No | Climbs on top of your pyramid (higher as it grows) and makes it build faster. |
 
 ### Combat rules

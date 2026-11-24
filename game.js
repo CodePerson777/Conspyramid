@@ -11,7 +11,9 @@ const BASE = 10, BS = 15;           // pyramid: 10-wide base, 15px blocks (55 bl
 const QX = 400;                     // quarry center x
 const MATCH_TIME = 150;
 const MANA_MAX = 10, MANA_RATE = 3.0, START_MANA = 5;   // +1 mana every 3s
-const QUARRY_MAX = 10, QUARRY_START = 4, QUARRY_REGEN = 2.0;   // +1 quarry stone every 2s (shared by both sides)
+const QUARRY_MAX = 12, QUARRY_START = 4, QUARRY_REGEN = 1.2;   // +1 quarry stone every 1.2s (shared by both sides)
+const KILL_MANA = 1;                // mana you earn for each enemy troop you kill
+const CATCHUP_PER_BLOCK = 0.05, CATCHUP_MAX = 0.6;   // side with fewer blocks gets +5% mana speed per block behind (max +60%)
 const UNIT_CAP = 8;                 // per side
 const BUILD_TIME = 4.0;             // seconds per block with no builders
 const BUILDER_BONUS = 0.5;          // each builder adds +50% build speed (max 4 count)
@@ -26,7 +28,7 @@ const TYPES = {
   builder:    { name: 'Builder',    icon: '🔨', cost: 3, hp: 10, speed: 35, ground: true, builder: true },
   saucer:     { name: 'Saucer',     icon: '🛸', cost: 5, hp: 18, speed: 75, carry: 2, mine: 0.6, air: true, gather: true, saucer: true, retreat: 0.4 },
 };
-const MEGA_BOMB_DMG = 30, MEGA_BOMB_RADIUS = 68, MEGA_BOMBS = 3;   // a Mega Ship drops 3 bombs, then leaves
+const MEGA_BOMB_DMG = 30, MEGA_BOMB_RADIUS = 68, MEGA_BOMBS = 2;   // a Mega Ship drops 2 bombs, then leaves
 const ABIL = {
   abduct:  { name: 'Abduct',  icon: '🌀', cost: 4 },
   explode: { name: 'Explode', icon: '💥', cost: 6 },
@@ -129,6 +131,9 @@ function nearestEnemy(u, maxD, filter) {
 }
 function kill(u, dropStone = true) {
   u.hp = 0;
+  const k = u.side.enemy;   // the other side earns mana for the kill
+  k.mana = Math.min(MANA_MAX, k.mana + KILL_MANA);
+  if (k.isYou) say(u.x, u.y - 34, '+' + KILL_MANA + '🔮', '#c9a4ff', 12);
   if (dropStone && u.carry > 0) { S.loose.push({ x: u.x, y: GROUND + rand(0, 8), n: u.carry }); }
   u.carry = 0;
   puff(u.x, u.y - 10, u.side.isYou ? '#6be86b' : '#c07bff', 12, 90);
@@ -237,7 +242,7 @@ function updateBattleship(u, dt) {
   if (!tgt) { moveTo(u, QX - s.dir * 70, 100, dt); return; }
   moveTo(u, tgt.x - s.dir * 50, tgt.T.air ? tgt.y : 215, dt);
 }
-// Mega Ship: fly to the middle, drop a big bomb on the enemy front line, fly home. After 3 bombs it flies away.
+// Mega Ship: fly to the middle, drop a big bomb on the enemy front line, fly home. After MEGA_BOMBS bombs it flies away.
 function updateMega(u, dt) {
   const s = u.side;
   const rival = s.enemy.units.find(v => v.T.mega && v.hp > 0);
@@ -403,7 +408,10 @@ function update(dt) {
   if (S.qTimer >= QUARRY_REGEN) { S.qTimer = 0; S.quarry = Math.min(QUARRY_MAX, S.quarry + 1); }
 
   for (const s of [S.you, S.bot]) {
-    s.mTimer += dt;
+    // Catch-up: the side that's behind gets mana faster.
+    const behind = Math.max(0, blockCount(s.enemy) - blockCount(s));
+    s.catchup = Math.min(CATCHUP_MAX, behind * CATCHUP_PER_BLOCK);
+    s.mTimer += dt * (1 + s.catchup);
     while (s.mTimer >= MANA_RATE) { s.mTimer -= MANA_RATE; s.mana = Math.min(MANA_MAX, s.mana + 1); }
     for (const u of s.units) {
       if (u.hp <= 0) continue;
@@ -637,6 +645,7 @@ function drawHud() {
   }
   if (me.mana < MANA_MAX) { rr(36 + me.mana * segW, 329, (segW - 3) * (me.mTimer / MANA_RATE), 8, 3); ctx.fillStyle = 'rgba(199,125,255,0.4)'; ctx.fill(); }
   text(me.mana + '/' + MANA_MAX, W - 18, 333, 10, '#c77dff', 'right', false);
+  if (me.catchup > 0) text('⚡ catch-up +' + Math.round(me.catchup * 100) + '% mana', W / 2, 318, 11, '#ffe066', 'center');
 
   CARDS.forEach((c, k) => {
     const r = cardRect(k), info = TYPES[c] || ABIL[c], ok = me.mana >= info.cost, armed = me.armed === c;
