@@ -15,6 +15,7 @@ function drawScreen() {
   if (mode === 'intro') drawIntro();
   else if (mode === 'home') drawHome();
   else if (mode === 'cutscene') drawCutscene();
+  else if (mode === 'lobby') drawLobby();   // net.js
 }
 function button(r, label, color, size = 20) {
   rr(r.x, r.y, r.w, r.h, 14);
@@ -98,7 +99,8 @@ function drawIntro() {
 
 // ---------- Home screen ----------
 const HOME = {
-  battle: { x: W / 2 - 115, y: 168, w: 230, h: 66 },
+  battle: { x: W / 2 - 235, y: 168, w: 230, h: 66 },
+  friend: { x: W / 2 + 5,   y: 168, w: 230, h: 66 },
   how:    { x: W / 2 - 115, y: 244, w: 110, h: 40 },
   intro:  { x: W / 2 + 5,   y: 244, w: 110, h: 40 },
 };
@@ -107,6 +109,7 @@ function goHome() { store.set('seenIntro', true); showHelp = false; mode = 'home
 function homeTap(x, y) {
   if (showHelp) { showHelp = false; return; }
   if (inRect(x, y, HOME.battle)) newGame();
+  else if (inRect(x, y, HOME.friend)) netHost();
   else if (inRect(x, y, HOME.how)) showHelp = true;
   else if (inRect(x, y, HOME.intro)) startIntro();
 }
@@ -126,6 +129,8 @@ function drawHome() {
   ctx.save(); ctx.translate(b.x + b.w / 2, b.y + b.h / 2); ctx.scale(pulse, pulse); ctx.translate(-(b.x + b.w / 2), -(b.y + b.h / 2));
   button(b, '⚔️ BATTLE', '#ff7b3a', 30);
   ctx.restore();
+  button(HOME.friend, '👫 PLAY A FRIEND', '#3a8a5a', 24);
+  if (NET.msgT > 0) text(NET.msg, W / 2, 300, 15, '#ffe066');
   button(HOME.how, 'How to play', '#4a2f7a', 14);
   button(HOME.intro, 'Watch intro', '#4a2f7a', 14);
   text('Home base, tech tree and real opponents coming soon!', W / 2, 362, 13, '#a58cc9', 'center', false);
@@ -193,8 +198,8 @@ function cutsceneTap(x, y) {
     for (const p of c.tourists) { p.x = p.tx; p.walking = false; }
     return;
   }
-  if (inRect(x, y, CUT_BTNS.home)) goHome();
-  else if (inRect(x, y, CUT_BTNS.again)) newGame();
+  if (inRect(x, y, CUT_BTNS.home)) { netLeave(); goHome(); }
+  else if (inRect(x, y, CUT_BTNS.again)) { if (NET.role) netRematch(); else newGame(); }
 }
 function drawStone(x, y, size) {
   ctx.fillStyle = '#d8b377'; ctx.fillRect(x + 0.5, y + 0.5, size - 1, size - 1);
@@ -281,7 +286,7 @@ function drawCutscene() {
   }
   if (t > 7) {
     button(CUT_BTNS.home, '🏠 Home', '#4a2f7a', 18);
-    button(CUT_BTNS.again, '⚔️ Battle again', '#ff7b3a', 18);
+    button(CUT_BTNS.again, !NET.role ? '⚔️ Battle again' : NET.readyMe ? 'Waiting for friend...' : NET.readyThem ? '⚔️ Rematch! (friend is ready)' : '⚔️ Rematch', '#ff7b3a', NET.role ? 15 : 18);
   } else if (Math.sin(titleT * 5) > -0.3) {
     text('tap to skip', W - 14, H - 12, 11, '#7a5a30', 'right', false);
   }

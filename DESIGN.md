@@ -96,6 +96,7 @@ The home base and battle pyramids are **completely separate**. Home only makes y
 
 ## Open questions
 - ~~Troop cost~~: **mana only** for now.
+- ~~Multiplayer~~: **Play a friend** with a link (peer-to-peer, your browser hosts the match).
 - ~~Building~~: **automatic** from stone at home; Builders speed it up.
 - ~~Deploying~~: tap a card and the troop spawns at your pyramid.
 - ~~Saucer~~: you start with one and can deploy more.

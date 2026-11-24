@@ -89,6 +89,8 @@ function newGame() {
   mode = 'play';
 }
 function say(x, y, text, color = '#fff', size = 13) { S.texts.push({ x, y, text, color, size, t: 0 }); }
+// A message only that side's player should see (online, the other player won't get it).
+function sayTo(s, ...a) { if (!s.isYou && !S.online) return; say(...a); S.texts[S.texts.length - 1].to = s.isYou ? 'host' : 'guest'; }
 function puff(x, y, color, n = 10, sp = 80) {
   for (let k = 0; k < n; k++) {
     const a = Math.random() * Math.PI * 2, v = sp * rand(0.4, 1.4);
@@ -111,9 +113,9 @@ function spawn(s, type) {
 const hasSaucer = s => s.units.some(u => u.T.saucer && u.hp > 0);
 function deploy(s, type) {
   const T = TYPES[type];
-  if (T.saucer && hasSaucer(s)) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Only 1 Saucer at a time!', '#f88'); return false; }
-  if (s.units.length >= UNIT_CAP) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Too many troops!', '#f88'); return false; }
-  if (s.mana < T.cost) { if (s.isYou) say(W / 2, BAR_Y - 30, 'Need ' + T.cost + ' mana', '#f88'); return false; }
+  if (T.saucer && hasSaucer(s)) { sayTo(s, W / 2, BAR_Y - 30, 'Only 1 Saucer at a time!', '#f88'); return false; }
+  if (s.units.length >= UNIT_CAP) { sayTo(s, W / 2, BAR_Y - 30, 'Too many troops!', '#f88'); return false; }
+  if (s.mana < T.cost) { sayTo(s, W / 2, BAR_Y - 30, 'Need ' + T.cost + ' mana', '#f88'); return false; }
   s.mana -= T.cost; spawn(s, type);
   return true;
 }
@@ -136,7 +138,7 @@ function kill(u, dropStone = true) {
   u.hp = 0;
   const k = u.side.enemy;   // the other side earns mana for the kill
   k.mana = Math.min(MANA_MAX, k.mana + KILL_MANA);
-  if (k.isYou) say(u.x, u.y - 34, '+' + KILL_MANA + '🔮', '#c9a4ff', 12);
+  sayTo(k, u.x, u.y - 34, '+' + KILL_MANA + '🔮', '#c9a4ff', 12);
   if (dropStone && u.carry > 0) { S.loose.push({ x: u.x, y: GROUND + rand(0, 8), n: u.carry }); }
   u.carry = 0;
   puff(u.x, u.y - 10, u.side.isYou ? '#6be86b' : '#c07bff', 12, 90);
@@ -188,7 +190,7 @@ function updateGatherer(u, dt) {
     for (const l of S.loose) {
       if (l.n > 0 && Math.abs(l.x - u.x) < 14) {
         const take = Math.min(l.n, T.carry - u.carry); l.n -= take; u.carry += take;
-        if (s.isYou) say(u.x, u.y - 30, '+' + take, '#ffd27a');
+        sayTo(s, u.x, u.y - 30, '+' + take, '#ffd27a');
         if (u.carry >= T.carry) u.state = 'toHome';
       }
     }
@@ -227,7 +229,7 @@ function updateRetreat(u, dt) {
   if (!T.retreat) return false;
   if (u.state !== 'retreat' && !u.retreated && !u.task && u.hp <= T.hp * T.retreat) {
     u.state = 'retreat';
-    if (s.isYou) say(u.x, u.y - 30, 'Ouch! Retreat!', '#ffb0b0', 11);
+    sayTo(s, u.x, u.y - 30, 'Ouch! Retreat!', '#ffb0b0', 11);
   }
   if (u.state === 'retreat') {
     if (moveTo(u, T.air ? s.cx : s.home, T.air ? 150 : u.y, dt, T.speed * 1.4)) {
@@ -323,7 +325,7 @@ function builderSpot(u) {
 function addStone(s, n, x, y, quiet) {
   const keep = Math.max(0, Math.min(n, STONE_MAX - s.stock)), extra = n - keep;
   s.stock += keep;
-  if (keep && s.isYou && !quiet) say(x, y - 30, '+' + keep + ' stone', '#ffd27a');
+  if (keep && !quiet) sayTo(s, x, y - 30, '+' + keep + ' stone', '#ffd27a');
   for (let k = 0; k < extra; k++)
     S.sacs.push({ x: x + rand(-6, 6), y: GROUND - 10, vx: rand(-25, 25), vy: rand(-330, -280), rot: 0, spin: rand(-8, 8), t: 0, delay: k * 0.12 });
   if (extra) say(x, y - (keep ? 46 : 30), extra > 1 ? 'Sacrificed ' + extra + ' to the gods!' : 'Sacrificed to the gods!', '#ffe9a8', 11);
@@ -365,10 +367,10 @@ function cast(s, kind, x, y) {   // returns true if cast
       let blk = null; forSlots((r, i) => { const q = slotRect(e, r, i); if (isExposed(e, r, i) && x > q.x - 5 && x < q.x + BS + 5 && y > q.y - 5 && y < q.y + BS + 5) blk = [r, i]; });
       if (blk) task = { kind: 'abductBlock', r: blk[0], i: blk[1] };
     }
-    if (!task) { if (s.isYou) say(x, y - 15, 'Tap an enemy or a top block', '#f88'); return false; }
+    if (!task) { sayTo(s, x, y - 15, 'Tap an enemy or a top block', '#f88'); return false; }
   }
   const sc = freeSaucer(s, x);
-  if (!sc) { if (s.isYou) say(x, y - 15, 'No Saucer!', '#f88'); return false; }
+  if (!sc) { sayTo(s, x, y - 15, 'No Saucer!', '#f88'); return false; }
   s.mana -= cost; sc.task = task; sc.state = 'toHome';
   return true;
 }
@@ -456,7 +458,7 @@ function update(dt) {
   S.botT -= dt;
   updateShots(dt);
   updateBigBombs(dt);
-  if (S.botT <= 0) { botThink(); S.botT = rand(0.9, 1.5); }
+  if (!S.online && S.botT <= 0) { botThink(); S.botT = rand(0.9, 1.5); }
   updateFx(dt);
 }
 function updateFx(dt) {
@@ -480,6 +482,7 @@ function endMatch(capper) {
     S.result = hy !== hb ? (hy > hb ? 'win' : 'lose') : cy !== cb ? (cy > cb ? 'win' : 'lose') : 'draw';
     S.reason = 'Time up!';
   }
+  netEnd();          // net.js: tell an online friend how it ended
   startCutscene();   // screens.js
 }
 
@@ -494,6 +497,8 @@ canvas.addEventListener('pointerdown', e => {
   if (mode === 'intro') introTap(x, y);
   else if (mode === 'home') homeTap(x, y);
   else if (mode === 'cutscene') cutsceneTap(x, y);
+  else if (mode === 'lobby') lobbyTap(x, y);   // net.js
+  else if (NET.role === 'guest') guestTap(x, y);
   else tap(x, y);
 });
 function tap(x, y) {
@@ -650,8 +655,8 @@ function drawHud() {
   rr(W / 2 - 42, 8, 84, 30, 10); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
   text(m + ':' + String(sec).padStart(2, '0'), W / 2, 24, 20, S.time < 20 ? '#ff6b6b' : '#fff');
   text('YOU ▲' + height(S.you), 16, 22, 18, '#7dff7a', 'left');
-  text('▲' + height(S.bot) + ' BOT', W - 16, 22, 18, '#d6a6ff', 'right');
-  text('🔮 ' + S.bot.mana, W - 16, 44, 11, '#d6a6ff', 'right', false);
+  text('▲' + height(S.bot) + ' ' + (S.bot.name || 'BOT'), W - 16, 22, 18, '#d6a6ff', 'right');
+  if (!S.online) text('🔮 ' + S.bot.mana, W - 16, 44, 11, '#d6a6ff', 'right', false);
 
   // bottom bar
   ctx.fillStyle = '#2a1240'; ctx.fillRect(0, BAR_Y, W, H - BAR_Y);
@@ -709,7 +714,7 @@ function drawFx() {
   }
   for (const p of S.parts) { ctx.globalAlpha = 1 - p.t / p.life; ctx.fillStyle = p.color; ctx.fillRect(p.x - 2, p.y - 2, 4, 4); }
   ctx.globalAlpha = 1;
-  for (const t of S.texts) { ctx.globalAlpha = 1 - t.t / 1.3; text(t.text, t.x, t.y - t.t * 25, t.size, t.color); }
+  for (const t of S.texts) { if (t.to === 'guest') continue; ctx.globalAlpha = 1 - t.t / 1.3; text(t.text, t.x, t.y - t.t * 25, t.size, t.color); }
   ctx.globalAlpha = 1;
 }
 function overlay(a = 0.6) { ctx.fillStyle = 'rgba(20,5,40,' + a + ')'; ctx.fillRect(0, 0, W, H); }
@@ -743,8 +748,9 @@ function frame(t) {
   titleT += dt;
   while (dt > 0) {   // small fixed steps keep slow phones at real-time speed
     const step = Math.min(0.05, dt); dt -= step;
-    if (S && mode === 'play') update(step);
+    if (S && mode === 'play' && NET.role !== 'guest') update(step);   // online guests just draw what the host sends
     updateScreens(step);
+    netStep(step);
   }
   draw();
   requestAnimationFrame(frame);
