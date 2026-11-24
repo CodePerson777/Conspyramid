@@ -1,5 +1,7 @@
 // Conspyramid - play online against a friend with a link.
-// Uses PeerJS (WebRTC): the two browsers talk directly, PeerJS's free cloud server only helps them find each other.
+// Two ways to connect:
+//  - Local (python server.py): messages go through the server on your computer. Works on home Wi-Fi with no internet.
+//  - GitHub Pages: PeerJS (WebRTC), the browsers talk directly; PeerJS's free cloud server only helps them find each other.
 // The host runs the real game. The guest sends its taps and draws the snapshots the host streams back,
 // flipped so the guest also sees itself on the left in green.
 // Loaded after game.js and screens.js.
@@ -9,13 +11,57 @@ const NET = { role: null, peer: null, conn: null, code: '', status: '', msg: '',
 const PEER_PREFIX = 'conspyramid-';
 const SNAP_RATE = 1 / 15;   // snapshots per second sent to the guest
 const TIMEOUT = 6;          // seconds of silence before we decide the friend is gone
+const USE_RELAY = !/github\.io$/.test(location.hostname);   // served by server.py: relay through it
 
-function roomLink() { return location.origin + location.pathname + '?room=' + NET.code; }
+function roomLink() { return (NET.base || location.origin + location.pathname) + '?room=' + NET.code; }
 function onLocalhost() { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname); }
 function netNotice(msg) { NET.msg = msg; NET.msgT = 5; }
 
 // ---------- Connection ----------
+// Relay connection through server.py. Looks enough like a PeerJS connection for the code below.
+function relayConn(code, me) {
+  const other = me === 'host' ? 'guest' : 'host', h = {};
+  const c = { open: false, alive: true, q: Promise.resolve(),
+    on(ev, f) { h[ev] = f; },
+    send(m) { this.q = this.q.then(() => fetch('net/send?room=' + code + '&to=' + other, { method: 'POST', body: JSON.stringify(m) })).catch(() => {}); },
+    close() { this.alive = false; this.open = false; } };
+  (async () => {
+    while (c.alive) {
+      try {
+        const msgs = await (await fetch('net/recv?room=' + code + '&me=' + me)).json();
+        for (const m of msgs) {
+          if (!c.alive) break;
+          if (!c.open) { c.open = true; if (h.open) h.open(); }
+          if (h.data) h.data(m);
+        }
+      } catch (e) { await new Promise(r => setTimeout(r, 1000)); }
+    }
+  })();
+  return c;
+}
+function relayHost() {
+  netLeave();
+  NET.role = 'host'; NET.code = Math.random().toString(36).slice(2, 7);
+  NET.status = 'Setting up...'; mode = 'lobby';
+  const c = relayConn(NET.code, 'host'), peer = { open: false, destroy() { c.close(); } };
+  NET.peer = peer; NET.conn = c; wireConn(c);
+  c.on('open', () => netStartMatch());   // first message from the guest
+  fetch('net/info').then(r => r.json()).then(info => {
+    if (NET.peer !== peer) return;
+    NET.base = info.base; peer.open = true; NET.status = 'Waiting for your friend to open the link...';
+  }).catch(() => { NET.status = "Can't reach the game server. Is server.py running?"; });
+}
+function relayJoin(code) {
+  netLeave();
+  NET.role = 'guest'; NET.code = code; NET.status = 'Connecting to your friend...'; mode = 'lobby';
+  const c = relayConn(code, 'guest');
+  NET.peer = { open: true, destroy() { c.close(); } }; NET.conn = c; wireConn(c);
+  c.send({ t: 'hello' });
+  setTimeout(() => { if (mode === 'lobby' && NET.role === 'guest') NET.status = "Still trying... is your friend's game open on the link screen?"; }, 6000);
+}
+
 function netHost() {
+  if (USE_RELAY) { relayHost(); return; }
   if (!window.Peer) { netNotice("Couldn't load the online library. Check your internet."); return; }
   netLeave();
   NET.role = 'host'; NET.code = Math.random().toString(36).slice(2, 7);
@@ -33,6 +79,7 @@ function netHost() {
   });
 }
 function netJoin(code) {
+  if (USE_RELAY) { relayJoin(code); return; }
   if (!window.Peer) { netNotice("Couldn't load the online library. Check your internet."); mode = 'home'; return; }
   netLeave();
   NET.role = 'guest'; NET.code = code; NET.status = 'Connecting to your friend...'; mode = 'lobby';
@@ -76,7 +123,7 @@ function onNetData(m) {
     else if (m.t === 'cast' && ABIL[m.k]) cast(S.bot, m.k, W - m.x, m.y);
   } else {
     if (m.t === 'start') { S = null; mode = 'lobby'; NET.status = 'Starting the battle...'; NET.armed = null; NET.readyMe = NET.readyThem = false; }
-    else if (m.t === 'snap') applySnap(m.s);
+    else if (m.t === 'snap') { if (mode !== 'cutscene') applySnap(m.s); }
     else if (m.t === 'end') { applySnap(m.s); S.result = m.result; S.reason = m.reason; NET.readyMe = NET.readyThem = false; startCutscene(); }
     else if (m.t === 'rematch') NET.readyThem = true;
   }
@@ -221,7 +268,7 @@ function drawLobby() {
     text('Send this link to your friend:', W / 2, 122, 16, '#fff', 'center', false);
     rr(W / 2 - 250, 140, 500, 40, 10); ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fill();
     text(roomLink(), W / 2, 161, roomLink().length > 50 ? 12 : 15, '#9be7ff', 'center', false);
-    if (onLocalhost()) text('⚠️ This is a localhost link. It only works on this computer until the game is online.', W / 2, 196, 11, '#ffb0b0', 'center', false);
+    if (onLocalhost() && !NET.base) text('⚠️ This is a localhost link. It only works on this computer until the game is online.', W / 2, 196, 11, '#ffb0b0', 'center', false);
     button(LOBBY.copy, NET.copied > 0 ? '✅ Copied!' : '📋 Copy link', '#4a2f7a', 17);
     button(LOBBY.share, '📤 Share', '#4a2f7a', 17);
   }

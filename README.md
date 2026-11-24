@@ -15,4 +15,6 @@ Landscape troop battle vs a bot (2:30). Spend mana on troops that fetch stone, y
 
 Tap **👫 Play a friend** on the home screen, then send the link to your friend. When they open it, the battle starts.
 Your game runs the match and streams it to theirs over WebRTC ([PeerJS](https://peerjs.com/)), so no game server is needed.
-The link only works for someone else once the game is hosted on the web (a `localhost` link only works on your own computer).
+- **Online:** play at https://codeperson777.github.io/Conspyramid/ (uses PeerJS / WebRTC, needs internet).
+- **Same Wi-Fi, no internet needed:** run `python server.py`. It prints an address like `http://192.168.68.57:8000/`.
+  Open that on both devices, tap Play a friend, and send the link. Matches go through the server on your computer.
