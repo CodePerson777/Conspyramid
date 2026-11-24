@@ -10,20 +10,21 @@ const BAR_Y = 326;                  // bottom UI bar starts here
 const BASE = 10, BS = 15;           // pyramid: 10-wide base, 15px blocks (55 blocks total)
 const QX = 400;                     // quarry center x
 const MATCH_TIME = 150;
-const MANA_MAX = 10, MANA_RATE = 1.3, START_MANA = 6;   // +1 mana every 1.3s
+const MANA_MAX = 10, MANA_RATE = 3.0, START_MANA = 5;   // +1 mana every 3s
 const QUARRY_MAX = 24, QUARRY_START = 16, QUARRY_REGEN = 1.5;   // +1 quarry stone every 1.5s
-const UNIT_CAP = 18;                // per side
+const UNIT_CAP = 8;                 // per side
 const BUILD_TIME = 2.4;             // seconds per block with no builders
 const BUILDER_BONUS = 0.6;          // each builder adds +60% build speed (max 4 count)
+const HEAL_RATE = 0.25;             // hurt troops heal 25% of max HP per second at home
 const FONT = '"Comic Sans MS", "Chalkboard SE", "Comic Neue", sans-serif';
 
 const TYPES = {
-  martian:    { name: 'Martian',    icon: '👽', cost: 3, hp: 30, speed: 45, carry: 1, mine: 0.9, dmg: 8,  range: 22, ground: true, gather: true, fights: true },
-  sneaky:     { name: 'Sneaky',     icon: '🥷', cost: 2, hp: 12, speed: 80, carry: 1, mine: 0.7, ground: true, gather: true, sneaky: true },
-  bigguy:     { name: 'Big Guy',    icon: '🦍', cost: 4, hp: 70, speed: 20, carry: 5, mine: 0.6, ground: true, gather: true },
-  battleship: { name: 'Battleship', icon: '🚀', cost: 5, hp: 45, speed: 55, dmg: 10, range: 85, air: true, fights: true },
+  martian:    { name: 'Martian',    icon: '👽', cost: 3, hp: 30, speed: 45, carry: 1, mine: 0.9, dmg: 8,  range: 22, ground: true, gather: true, fights: true, retreat: 0.6 },
+  sneaky:     { name: 'Sneaky',     icon: '🥷', cost: 2, hp: 12, speed: 80, carry: 1, mine: 0.7, ground: true, gather: true, sneaky: true, retreat: 0.5 },
+  bigguy:     { name: 'Big Guy',    icon: '🦍', cost: 4, hp: 70, speed: 20, carry: 5, mine: 0.6, ground: true, gather: true, retreat: 0.3 },
+  battleship: { name: 'Battleship', icon: '🚀', cost: 5, hp: 45, speed: 55, dmg: 10, range: 85, air: true, fights: true, retreat: 0.4 },
   builder:    { name: 'Builder',    icon: '🔨', cost: 3, hp: 20, speed: 35, ground: true, builder: true },
-  saucer:     { name: 'Saucer',     icon: '🛸', cost: 5, hp: 30, speed: 75, carry: 2, mine: 0.6, air: true, gather: true, saucer: true },
+  saucer:     { name: 'Saucer',     icon: '🛸', cost: 5, hp: 30, speed: 75, carry: 2, mine: 0.6, air: true, gather: true, saucer: true, retreat: 0.4 },
 };
 const ABIL = {
   abduct:  { name: 'Abduct',  icon: '🌀', cost: 4 },
@@ -165,6 +166,28 @@ function updateGatherer(u, dt) {
     }
   }
 }
+// Hurt troops run home (dropping off any stone), heal up, then head back out.
+function updateRetreat(u, dt) {
+  const T = u.T, s = u.side;
+  if (!T.retreat) return false;
+  if (u.state !== 'retreat' && u.state !== 'healing' && !u.task && u.hp <= T.hp * T.retreat) {
+    u.state = 'retreat'; u.hitting = null; u.shootAt = null;
+    if (s.isYou) say(u.x, u.y - 30, 'Ouch! Retreat!', '#ffb0b0', 11);
+  }
+  if (u.state === 'retreat') {
+    if (moveTo(u, T.air ? s.cx : s.home, T.air ? 150 : u.y, dt, T.speed * 1.4)) {
+      if (u.carry) { s.stock += u.carry; if (s.isYou) say(s.home, u.y - 30, '+' + u.carry + ' stone', '#ffd27a'); }
+      u.carry = 0; u.state = 'healing';
+    }
+    return true;
+  }
+  if (u.state === 'healing') {
+    u.hp = Math.min(T.hp, u.hp + T.hp * HEAL_RATE * dt);
+    if (u.hp >= T.hp) { u.state = 'toQuarry'; u.qx = QX - s.dir * rand(0, 28); }
+    return true;
+  }
+  return false;
+}
 function updateBattleship(u, dt) {
   const s = u.side;
   const tgt = nearestEnemy(u, 9999);
@@ -286,6 +309,7 @@ function update(dt) {
     while (s.mTimer >= MANA_RATE) { s.mTimer -= MANA_RATE; s.mana = Math.min(MANA_MAX, s.mana + 1); }
     for (const u of s.units) {
       if (u.hp <= 0) continue;
+      if (updateRetreat(u, dt)) continue;
       if (u.T.saucer) updateSaucer(u, dt);
       else if (u.T.gather) updateGatherer(u, dt);
       else if (u.T.builder) updateBuilder(u, dt);
@@ -445,7 +469,7 @@ function drawUnit(u) {
       ctx.restore();
     }
   } else {
-    const walking = u.state !== 'mining' && !u.hitting && !(T.builder && Math.abs(u.x - u.station) < 1);
+    const walking = u.state !== 'mining' && u.state !== 'healing' && !u.hitting && !(T.builder && Math.abs(u.x - u.station) < 1);
     const y = u.y + (walking ? -Math.abs(bob(u, 3)) : 0);
     const big = u.type === 'bigguy' ? 1.7 : u.type === 'sneaky' ? 0.8 : 1;
     ctx.translate(x, y); ctx.scale(big * u.face, big);
@@ -471,6 +495,7 @@ function drawUnit(u) {
     // carried stone
     for (let k = 0; k < u.carry; k++) drawBlock(x - 4, y - big * 23 - 8 - k * 7, 8);
   }
+  if (u.state === 'healing') text('+', u.x + 8, (T.air ? u.y - 14 : u.y - 30) - (now() * 20 % 10), 12, '#7dff7a', 'center', false);
   // health bar
   if (u.hp < T.hp) {
     const top = T.air ? u.y - 16 : u.y - (u.type === 'bigguy' ? 52 : 34);
